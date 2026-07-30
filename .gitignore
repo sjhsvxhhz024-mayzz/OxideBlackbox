@@ -1,0 +1,37 @@
+# === Build output ===
+*.apk
+*.aar
+*.ap_
+*.aab
+*.dex
+*.class
+bin/
+gen/
+out/
+build/
+.cxx/
+.externalNativeBuild/
+
+# === Gradle ===
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# === Local / IDE config ===
+local.properties
+.idea/
+.androidide/
+*.iml
+
+# === Keystore / secrets (НИКОГДА не коммитить) ===
+*.jks
+*.keystore
+*.bks
+*.p12
+*.pem
+google-services.json
+keystore.properties
+
+# === Logs / OS ===
+*.log
+.DS_Store
+Thumbs.db
