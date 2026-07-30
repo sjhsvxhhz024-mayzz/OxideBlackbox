@@ -1,0 +1,5 @@
+include ':Bcore'
+include ':app'
+
+
+rootProject.name = "EclipsBox"
