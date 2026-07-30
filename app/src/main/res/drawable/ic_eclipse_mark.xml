@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- faint indigo outer corona -->
+    <path
+        android:strokeColor="#5B5BFF"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.5"
+        android:pathData="M54,20 A34,34 0 1,1 54,88 A34,34 0 1,1 54,20 Z" />
+    <!-- golden corona ring -->
+    <path
+        android:strokeColor="#FFCC66"
+        android:strokeWidth="3.5"
+        android:pathData="M54,24 A30,30 0 1,1 54,84 A30,30 0 1,1 54,24 Z" />
+    <!-- black sealed disc -->
+    <path
+        android:fillColor="#0A0B0F"
+        android:pathData="M54,28 A26,26 0 1,1 54,80 A26,26 0 1,1 54,28 Z" />
+</vector>

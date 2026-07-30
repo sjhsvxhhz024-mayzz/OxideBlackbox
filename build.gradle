@@ -1,0 +1,55 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    repositories {
+      //  gradlePluginPortal()
+        google()
+        mavenCentral()
+        jcenter()
+        maven {
+            url 'https://jitpack.io'
+        }
+
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.2'
+
+        classpath 'org.lsposed.lsparanoid:gradle-plugin:0.5.2'
+       
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        jcenter()
+        maven {
+            url 'https://jitpack.io'
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+ext {
+    kotlin_version = '1.7.10'
+    ktx_version = '1.9.0'
+    minSdk = 24
+    compileSdkVersion = 34
+    compileSdk = 34
+    buildToolsVersion = "34"
+    targetSdkVersion = 28
+    targetSdk = 28
+
+    ndkVersion = '24.0.8215888'
+    cmakeVersion = '3.22.1'
+
+    versionName = '3.8.0'
+    versionCode = 370
+    useASAN = false
+    blackReflection = '1.1.4'
+    hiddenApiBypass = '6.1'
+    xCrash = '3.1.0'
+}

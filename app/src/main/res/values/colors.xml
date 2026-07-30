@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Eclipse palette -->
+    <color name="eclipse_space">#050507</color>
+    <color name="eclipse_black">#0A0B0F</color>
+    <color name="panel_glass">#14161C</color>
+    <color name="panel_glass_hi">#1C1F27</color>
+    <color name="stroke_soft">#2A2E38</color>
+
+    <color name="corona_bright">#FFF3D6</color>
+    <color name="corona_gold">#FFCC66</color>
+    <color name="corona_amber">#F5A623</color>
+    <color name="indigo">#5B5BFF</color>
+    <color name="indigo_dim">#3A3AD0</color>
+
+    <color name="text_primary">#F5F3EF</color>
+    <color name="text_secondary">#9AA0AA</color>
+    <color name="text_muted">#6B7078</color>
+
+    <color name="danger">#FF5C5C</color>
+    <color name="scrim">#B3000000</color>
+</resources>
