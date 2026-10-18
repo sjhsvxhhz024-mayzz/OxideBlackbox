@@ -13,3 +13,4 @@
 
 # Workspace service files
 /.hoplite/
+__pycache__/
