@@ -1,0 +1,15 @@
+# Godot
+/.godot/
+/build/
+*.tmp
+
+# Blender backups
+*.blend1
+*.blend@
+
+# Local tools and downloaded installers (Blender, Godot)
+/.tools/
+/downloads/
+
+# Workspace service files
+/.hoplite/
