@@ -6,7 +6,7 @@
 [ext_resource type="PackedScene" path="res://assets/models/game/viewmodel_rock.glb" id="4_hand"]
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="5_hud"]
 [ext_resource type="Theme" path="res://ui/menu_theme.tres" id="6_theme"]
-[ext_resource type="PackedScene" path="res://assets/models/game/player_rigged.glb" id="8_body"]
+[ext_resource type="PackedScene" path="res://assets/models/game/player_soldier.glb" id="8_body"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.35
@@ -41,7 +41,6 @@ far = 500.0
 [node name="Viewmodel" parent="Player/Head/Camera3D/Hold/Swing" instance=ExtResource("4_hand")]
 
 [node name="Body" parent="Player" instance=ExtResource("8_body")]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 visible = false
 
 [node name="HUD" type="CanvasLayer" parent="."]
