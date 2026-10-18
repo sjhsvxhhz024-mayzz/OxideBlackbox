@@ -1,0 +1,1101 @@
+
+/* ============================================================================
+   11. Fish behaviour system — waypoint steering with soft avoidance
+   ========================================================================== */
+const SWIM = { x: INNER_X - 0.45, z: INNER_Z - 0.38, top: WATER_Y - 0.3, floor: 0.22 };
+const WORLD = { fishes: [], food: null, anemone: null };
+const _s1 = new THREE.Vector3(), _s2 = new THREE.Vector3(), _s3 = new THREE.Vector3(), _s4 = new THREE.Vector3(), _s5 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+
+function isFree(p, margin) {
+  for (const o of OBSTACLES) if (p.distanceTo(o.c) < o.r + margin) return false;
+  return true;
+}
+function clampToSwim(p) {
+  p.x = clamp(p.x, -SWIM.x, SWIM.x);
+  p.z = clamp(p.z, -SWIM.z, SWIM.z);
+  p.y = clamp(p.y, terrainHeight(p.x, p.z) + 0.4, SWIM.top - 0.05);
+  return p;
+}
+function randomSwimPoint(zone, out) {
+  for (let i = 0; i < 30; i++) {
+    const x = rr(Math.max(zone.x[0], -SWIM.x), Math.min(zone.x[1], SWIM.x));
+    const z = rr(Math.max(zone.z[0], -SWIM.z), Math.min(zone.z[1], SWIM.z));
+    const lo = Math.max(terrainHeight(x, z) + 0.45, zone.y[0]);
+    const hi = Math.min(SWIM.top - 0.08, Math.max(lo + 0.1, zone.y[1]));
+    out.set(x, rr(lo, hi), z);
+    if (isFree(out, 0.32)) return out;
+  }
+  return out.set(rr(-1.2, 1.2), rr(-0.2, 0.8), rr(0.4, 1.0));
+}
+
+function fishConfig(o) {
+  const orange = new THREE.Color().setHSL(o.hue, 1.0, o.light, THREE.SRGBColorSpace);
+  return { ...o, orange, belly: orange.clone().lerp(col('#ffe3c2'), 0.55) };
+}
+const FISH_CONFIGS = [
+  { name: 'Pip', size: 0.88, personality: 'curious', hue: 0.062, light: 0.53, speed: 0.6, turn: 4.2, notice: 2.4, finScale: 0.95,
+    bands: [0.735, 0.47, 0.108], widths: [0.042, 0.052, 0.027], border: 0.012, start: V3(-1.2, 0.2, 0.8), zone: { x: [-2.8, 2.8], y: [-1.1, 1.1], z: [0.1, 1.3] } },
+  { name: 'Saffron', size: 1.0, personality: 'shy', hue: 0.074, light: 0.52, speed: 0.44, turn: 3.2, notice: 1.6, finScale: 1.0,
+    bands: [0.74, 0.475, 0.105], widths: [0.048, 0.06, 0.03], border: 0.016, start: V3(-0.4, -0.5, 0.5), zone: { x: [-2.9, 0.6], y: [-1.2, 0.6], z: [-1.0, 0.9] } },
+  { name: 'Atlas', size: 1.12, personality: 'explorer', hue: 0.05, light: 0.5, speed: 0.7, turn: 3.6, notice: 2.0, finScale: 1.08,
+    bands: [0.73, 0.465, 0.11], widths: [0.044, 0.056, 0.028], border: 0.013, start: V3(1.4, 0.3, 0.3), zone: { x: [-3.0, 3.0], y: [-1.2, 1.3], z: [-1.3, 1.3] } },
+].map(fishConfig);
+
+class Clownfish {
+  constructor(cfg) {
+    this.cfg = cfg;
+    this.size = cfg.size;
+    this.seed = rand() * 100;
+    this.u = { uWag: { value: 0 }, uUndulate: { value: 0.015 }, uTailBend: { value: 0 } };
+    this.group = new THREE.Group();
+    this.group.name = 'clownfish-' + cfg.name;
+    this.root = new THREE.Group();
+    this.root.scale.setScalar(FISH_SCALE * cfg.size);
+    this.group.add(this.root);
+    this.build();
+
+    this.pos = cfg.start.clone();
+    this.vel = V3(rr(0.05, 0.2), 0, rr(-0.15, 0.15));
+    this.fwd = this.vel.clone().normalize();
+    this.target = new THREE.Vector3();
+    this.mouth = new THREE.Vector3();
+    this.lookPoint = new THREE.Vector3();
+    this.hoverPoint = new THREE.Vector3();
+    this.hoverLook = new THREE.Vector3();
+    this.fleeTarget = new THREE.Vector3();
+    this.followOffset = new THREE.Vector3();
+    this.nestle = new THREE.Vector3();
+    this.leavePt = new THREE.Vector3();
+    this.queue = [];
+    this.mode = 'roam'; this.modeTime = 0; this.maxSpeed = cfg.speed; this.arrive = 0.45; this.faceDir = null;
+    this.wagPhase = rand() * TAU; this.wagRate = 6; this.tailAmp = 0.3; this.flapPhase = rand() * TAU;
+    this.bank = 0; this.prevYaw = Math.atan2(this.fwd.x, this.fwd.z); this.prevSpeed = 0; this.accel = 0;
+    this.fleeTime = 0; this.nibble = 0; this.holding = false; this.holdTime = 0;
+    this.group.position.copy(this.pos);
+    quatFromForward(this.fwd, this.group.quaternion);
+    randomSwimPoint(cfg.zone, this.target);
+  }
+
+  build() {
+    const cfg = this.cfg, M = (this.mats = makeFishMaterials(cfg, this.u)), E = eyeParts(), fs = cfg.finScale, orange = cfg.orange;
+    this.root.add(new THREE.Mesh(FISH_BODY_GEO, M.body));
+    const rows = [0, 0.3, 0.55, 0.72, 0.8, 0.83, 1];
+    const b2 = cfg.bands[1], w2 = cfg.widths[1];
+    this.dorsal = new THREE.Mesh(loftFin(30, rows,
+      (u) => { const s = lerp(0.76, 0.2, u); return V3(0, fishTop(s) - 0.012, fishZ(s)); },
+      (u) => {
+        const s = lerp(0.76, 0.2, u);
+        const e1 = smooth(0, 0.1, u) * (1 - smooth(0.36, 0.48, u)), e2 = smooth(0.4, 0.58, u) * (1 - smooth(0.86, 1, u));
+        const h = (0.02 + 0.075 * e1 + 0.012 * Math.sin(u * 62) * e1 + 0.115 * e2) * fs;
+        return V3(0, fishTop(s) + h, fishZ(s) - h * 0.45);
+      },
+      finColors(orange, 0.83, 0.25, (f, u) => Math.abs(lerp(0.76, 0.2, u) - b2) < w2 * 0.8 && f < 0.62)), M.fin);
+    this.anal = new THREE.Mesh(loftFin(16, rows,
+      (u) => { const s = lerp(0.44, 0.2, u); return V3(0, fishBottom(s) + 0.012, fishZ(s)); },
+      (u) => { const s = lerp(0.44, 0.2, u), h = (0.018 + 0.1 * Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.1)), 0.8)) * fs; return V3(0, fishBottom(s) - h, fishZ(s) - h * 0.55); },
+      finColors(orange, 0.8, 0.25)), M.fin);
+    this.root.add(this.dorsal, this.anal);
+
+    this.tailPivot = new THREE.Group();
+    this.tailPivot.position.set(0, fishYC(0), fishZ(0) + 0.01);
+    this.tailPivot.add(new THREE.Mesh(loftFin(20, rows, (u) => V3(0, (u - 0.5) * 0.12, 0.012),
+      (u) => { const a = (u - 0.5) * 1.9, R = 0.27 * fs * (1 + 0.05 * Math.cos(a * 2)); return V3(0, Math.sin(a) * R * 1.02, -Math.cos(a) * R * 0.95); },
+      finColors(orange, 0.83, 0.3)), M.tail));
+    this.root.add(this.tailPivot);
+
+    const sp = 0.66, py = fishYC(sp) - 0.35 * fishHH(sp), px = fishHW(sp) * 0.86;
+    const pecGeo = loftFin(12, [0, 0.35, 0.6, 0.8, 0.84, 0.87, 1], (u) => V3(0, (u - 0.5) * 0.05, 0),
+      (u) => { const a = (u - 0.5) * 2.4; return V3(0, Math.sin(a) * 0.085 * fs, -0.03 - Math.cos(a) * 0.11 * fs); }, finColors(orange, 0.86, 0.35));
+    this.pecL = new THREE.Group(); this.pecL.position.set(px, py, fishZ(sp)); this.pecL.add(new THREE.Mesh(pecGeo, M.plain));
+    this.pecR = new THREE.Group(); this.pecR.position.set(-px, py, fishZ(sp)); this.pecR.add(new THREE.Mesh(pecGeo, M.plain));
+    this.root.add(this.pecL, this.pecR);
+    const pelGeo = loftFin(8, [0, 0.3, 0.5, 0.55, 1], (u) => V3(0, 0, (0.5 - u) * 0.035),
+      (u) => V3(0, -0.075 * Math.sin(Math.PI * (0.15 + 0.7 * u)) * fs, (0.5 - u) * 0.05 - 0.05 - 0.05 * u), finColors(orange, 0.55, 0.2));
+    this.pelvic = [1, -1].map((side) => {
+      const p = new THREE.Group();
+      p.position.set(side * 0.03, fishBottom(0.62) + 0.02, fishZ(0.62));
+      p.rotation.set(0.2, 0, side * 0.35);
+      p.add(new THREE.Mesh(pelGeo, M.plain));
+      this.root.add(p);
+      return p;
+    });
+
+    const se = 0.865, ey = fishYC(se) + 0.32 * fishHH(se);
+    const sn = Math.pow(0.32, 1 / 0.88), ex = fishHW(se) * Math.pow(Math.sqrt(1 - sn * sn), 0.82);
+    for (const side of [1, -1]) {
+      const eye = new THREE.Group();
+      eye.position.set(side * (ex - 0.014), ey, fishZ(se));
+      const pupil = new THREE.Mesh(E.pupil, E.pupilMat); pupil.position.set(side * 0.022, 0.002, 0.006);
+      const glint = new THREE.Mesh(E.glint, E.glintMat); glint.position.set(side * 0.046, 0.016, 0.014);
+      const socket = new THREE.Mesh(E.socket, M.skin); socket.rotation.y = Math.PI / 2; socket.position.x = -side * 0.004;
+      eye.add(new THREE.Mesh(E.ball, E.iris), pupil, glint, socket);
+      this.root.add(eye);
+    }
+    this.mouthMesh = new THREE.Mesh(E.mouth, E.mouthMat);
+    this.mouthMesh.position.set(0, -0.04, 0.537);
+    this.mouthMesh.scale.set(1.2, 0.32, 0.7);
+    this.root.add(this.mouthMesh);
+    shadows(this.root);
+  }
+
+  setMode(m) { this.mode = m; this.modeTime = 0; this.holding = false; this.holdTime = 0; }
+
+  decide(world, noAnemone = false) {
+    this.queue.length = 0;
+    const W = { curious: [0.08, 0.1, 0.24, 0.18, 0.12], shy: [0.3, 0.04, 0.02, 0.26, 0.1], explorer: [0.07, 0.32, 0.06, 0.12, 0.1] }[this.cfg.personality];
+    let r = rand();
+    if ((r -= W[0]) < 0) { if (!noAnemone && world.anemone.claim(this)) return this.startAnemone(world); }
+    else if ((r -= W[1]) < 0) return this.startArch();
+    else if ((r -= W[2]) < 0) return this.startFront();
+    else if ((r -= W[3]) < 0) return this.startHover();
+    else if ((r -= W[4]) < 0) { if (this.startFollow(world)) return; }
+    this.setMode('roam');
+    randomSwimPoint(this.cfg.zone, this.target);
+  }
+  startAnemone(world) {
+    const c = world.anemone.center;
+    this.setMode('anemone');
+    this.aPhase = 'approach';
+    this.aAngle = Math.atan2(this.pos.z - c.z, this.pos.x - c.x);
+    this.aDir = rand() < 0.5 ? 1 : -1;
+  }
+  startArch() {
+    this.setMode('path');
+    const fromFront = this.pos.z > ARCH.mid.z;
+    const seq = fromFront ? [ARCH.front, ARCH.mid, ARCH.back, V3(2.7, -0.4, -1.15)] : [ARCH.back, ARCH.mid, ARCH.front, V3(1.3, -0.55, 1.1)];
+    this.target.copy(seq[0]);
+    this.queue = seq.slice(1).map((v) => v.clone());
+  }
+  startFront() {
+    const x = clamp(this.pos.x + rr(-1.2, 1.2), -2.4, 2.4), y = rr(-0.7, 0.7);
+    this.setMode('hover');
+    this.hoverPoint.set(x, y, SWIM.z - 0.06);
+    this.hoverLook.set(x, y, 8);
+    this.hoverDur = rr(2.5, 4.5);
+  }
+  startHover() {
+    const z = this.cfg.zone;
+    const options = POIS.filter((p) => p.p.x >= z.x[0] - 0.3 && p.p.x <= z.x[1] + 0.3);
+    const poi = pick(options.length ? options : POIS);
+    this.setMode('hover');
+    clampToSwim(this.hoverPoint.copy(poi.p).add(V3(rr(-0.08, 0.08), rr(-0.05, 0.05), rr(-0.08, 0.08))));
+    this.hoverLook.copy(poi.look);
+    this.hoverDur = rr(2.5, 5.5);
+  }
+  startFollow(world) {
+    const others = world.fishes.filter((f) => f !== this && f.mode !== 'anemone' && f.leader !== this);
+    if (!others.length) return false;
+    this.leader = pick(others);
+    this.setMode('follow');
+    this.followOffset.set(rr(-0.25, 0.25), rr(-0.15, 0.15), rr(-0.25, 0.25));
+    this.followDur = rr(4, 7);
+    return true;
+  }
+  startle(p) {
+    if (this.mode === 'anemone') { WORLD.anemone.release(this); this.setMode('roam'); randomSwimPoint(this.cfg.zone, this.target); }
+    this.fleeTime = 1.2;
+    this.fleeTarget.subVectors(this.pos, p).setY(0).normalize().multiplyScalar(1.5).add(this.pos);
+    this.fleeTarget.y += rr(-0.2, 0.3);
+    clampToSwim(this.fleeTarget);
+  }
+
+  think(dt, t, world) {
+    this.modeTime += dt;
+    this.faceDir = null; this.arrive = 0.45; this.maxSpeed = this.cfg.speed;
+    if (this.fleeTime > 0) {
+      this.fleeTime -= dt;
+      this.target.copy(this.fleeTarget); this.maxSpeed = this.cfg.speed * 1.9; this.arrive = 0.25;
+      return;
+    }
+    const meal = world.food.nearest(this.mouth, this.cfg.notice);
+    if (meal) {
+      if (this.mode === 'anemone') world.anemone.release(this);
+      if (this.mode !== 'food') this.setMode('food');
+      this.target.copy(meal.pos); this.maxSpeed = this.cfg.speed * 1.45; this.arrive = 0.3;
+      if (this.mouth.distanceTo(meal.pos) < 0.05 + 0.05 * this.size) { world.food.eat(meal); this.nibble = 1; }
+      return;
+    }
+    if (this.mode === 'food') this.decide(world);
+    switch (this.mode) {
+      case 'roam':
+        this.maxSpeed = this.cfg.speed * (0.78 + 0.22 * Math.sin(t * 0.31 + this.seed));
+        if (this.pos.distanceTo(this.target) < 0.35 || this.modeTime > 14) this.decide(world);
+        break;
+      case 'path':
+        this.maxSpeed = this.cfg.speed * 0.85; this.arrive = 0.2;
+        if (this.pos.distanceTo(this.target) < 0.3) { if (this.queue.length) this.target.copy(this.queue.shift()); else this.decide(world); }
+        if (this.modeTime > 30) this.decide(world);
+        break;
+      case 'hover': {
+        this.target.copy(this.hoverPoint);
+        if (!this.holding && this.pos.distanceTo(this.hoverPoint) > 0.4) {
+          this.maxSpeed = this.cfg.speed * 0.8; this.arrive = 0.5;
+          if (this.modeTime > 15) this.decide(world);
+          break;
+        }
+        this.holding = true;
+        this.holdTime += dt;
+        this.target.y += Math.sin(t * 0.9 + this.seed) * 0.04;
+        this.target.x += Math.sin(t * 0.6 + this.seed * 2) * 0.05;
+        this.maxSpeed = 0.14; this.arrive = 0.6; this.faceDir = this.hoverLook;
+        if (this.holdTime > this.hoverDur) this.decide(world);
+        break;
+      }
+      case 'follow': {
+        const L = this.leader;
+        clampToSwim(this.target.copy(L.pos).addScaledVector(L.fwd, -0.6).add(this.followOffset));
+        this.maxSpeed = this.cfg.speed * 1.1; this.arrive = 0.4;
+        if (this.modeTime > this.followDur || L.mode === 'anemone') this.decide(world);
+        break;
+      }
+      case 'anemone': this.anemoneBehaviour(dt, t, world); break;
+    }
+  }
+
+  /** Approach → circle once → nestle among the tentacles → swim away. */
+  anemoneBehaviour(dt, t, world) {
+    const A = world.anemone, c = A.center;
+    switch (this.aPhase) {
+      case 'approach':
+        this.target.set(c.x + Math.cos(this.aAngle) * 0.85, A.crownY + 0.12, c.z + Math.sin(this.aAngle) * 0.85);
+        clampToSwim(this.target);
+        this.maxSpeed = this.cfg.speed * 0.7; this.arrive = 0.4;
+        if (this.pos.distanceTo(this.target) < 0.32) { this.aPhase = 'circle'; this.aProgress = 0; }
+        if (this.modeTime > 15) this.leaveAnemone(world);
+        break;
+      case 'circle': {
+        this.aProgress += dt * 0.75;
+        const a = this.aAngle + this.aDir * (this.aProgress + 0.5);
+        this.target.set(c.x + Math.cos(a) * 0.82, A.crownY + 0.1 + 0.06 * Math.sin(this.aProgress * 2), c.z + Math.sin(a) * 0.82);
+        clampToSwim(this.target);
+        this.maxSpeed = 0.38; this.arrive = 0.2;
+        if (this.aProgress >= TAU) {
+          this.aPhase = 'nestle'; this.aTime = 0; this.aDur = rr(2.5, 4.5);
+          this.nestle.set(c.x + rr(-0.1, 0.1), A.discY + 0.13, c.z + rr(-0.1, 0.1));
+        }
+        break;
+      }
+      case 'nestle':
+        this.aTime += dt;
+        this.target.copy(this.nestle);
+        this.target.y += Math.sin(t * 1.3 + this.seed) * 0.03;
+        this.maxSpeed = 0.16; this.arrive = 0.5;
+        this.faceDir = this.lookPoint.set(c.x + Math.cos(t * 0.4 + this.seed) * 2, this.nestle.y, c.z + Math.sin(t * 0.4 + this.seed) * 2);
+        if (this.aTime > this.aDur) {
+          this.aPhase = 'leave';
+          for (let i = 0; i < 12; i++) {
+            const ang = rand() * TAU;
+            clampToSwim(this.leavePt.set(c.x + Math.cos(ang) * 1.5, A.crownY + 0.7, c.z + Math.sin(ang) * 1.5));
+            if (isFree(this.leavePt, 0.3)) break;
+          }
+        }
+        break;
+      case 'leave':
+        this.target.copy(this.leavePt);
+        this.maxSpeed = this.cfg.speed * 0.8; this.arrive = 0.3;
+        if (this.pos.distanceTo(this.target) < 0.4 || this.modeTime > 40) this.leaveAnemone(world);
+        break;
+    }
+  }
+  leaveAnemone(world) { world.anemone.release(this); this.decide(world, true); }
+
+  avoidBounds(steer) {
+    const p = this.pos, m = 0.7, K = 3.2;
+    if (p.x > SWIM.x - m) steer.x -= K * ((p.x - (SWIM.x - m)) / m) ** 2;
+    if (p.x < -SWIM.x + m) steer.x += K * ((-SWIM.x + m - p.x) / m) ** 2;
+    if (p.z > SWIM.z - m) steer.z -= K * ((p.z - (SWIM.z - m)) / m) ** 2;
+    if (p.z < -SWIM.z + m) steer.z += K * ((-SWIM.z + m - p.z) / m) ** 2;
+    const floor = terrainHeight(p.x, p.z) + SWIM.floor;
+    if (p.y < floor + 0.3) steer.y += K * ((floor + 0.3 - p.y) / 0.3) ** 2;
+    if (p.y > SWIM.top - 0.3) steer.y -= K * ((p.y - (SWIM.top - 0.3)) / 0.3) ** 2;
+  }
+  avoidObstacles(steer, world) {
+    const skip = world.anemone.occupant === this && this.mode === 'anemone';
+    const margin = 0.2 * this.size;
+    for (const o of OBSTACLES) {
+      if (skip && (o.tag === 'crown' || o.tag === 'anemoneBase')) continue;
+      const R = o.r + margin;
+      _s4.subVectors(this.pos, o.c);
+      const d = _s4.length();
+      if (d < R + 0.35) {
+        const k = (R + 0.35 - d) / 0.35;
+        steer.addScaledVector(_s4, (k * k * 3.0) / Math.max(d, 1e-3));
+        if (d < R) this.pos.addScaledVector(_s4, ((R - d) / Math.max(d, 1e-3)) * 0.5);   // never sink into a prop
+      }
+      _s5.copy(this.vel).multiplyScalar(0.6).add(this.pos).sub(o.c);
+      const da = _s5.length();
+      if (da < R) steer.addScaledVector(_s5, ((R - da) * 4.0) / Math.max(da, 1e-3));
+    }
+  }
+  social(steer, list) {
+    for (const o of list) {
+      if (o === this) continue;
+      _s4.subVectors(this.pos, o.pos);
+      const d = _s4.length(), sep = 0.21 * (this.size + o.size) + 0.2;
+      if (d < sep) steer.addScaledVector(_s4, (((sep - d) / sep) * 2.6) / Math.max(d, 1e-3));
+      if (d < 1.3 && this.mode === 'roam') steer.addScaledVector(_s5.subVectors(o.vel, this.vel), 0.12);
+    }
+  }
+  hardLimits() {
+    const p = this.pos;
+    p.x = clamp(p.x, -SWIM.x - 0.12, SWIM.x + 0.12);
+    p.z = clamp(p.z, -SWIM.z - 0.1, SWIM.z + 0.1);
+    const floor = terrainHeight(p.x, p.z) + 0.16;
+    if (p.y < floor) { p.y = floor; this.vel.y = Math.max(0, this.vel.y); }
+    if (p.y > SWIM.top + 0.08) { p.y = SWIM.top + 0.08; this.vel.y = Math.min(0, this.vel.y); }
+  }
+
+  update(dt, t, world) {
+    this.mouth.copy(this.fwd).multiplyScalar(0.56 * FISH_SCALE * this.size).add(this.pos);
+    this.think(dt, t, world);
+
+    // steering: arrive at target + soft avoidance forces
+    const steer = _s1;
+    _s2.subVectors(this.target, this.pos);
+    const dist = _s2.length();
+    let desired = this.maxSpeed;
+    if (dist < this.arrive) desired *= dist / this.arrive;
+    if (dist > 1e-4) _s2.multiplyScalar(desired / dist); else _s2.set(0, 0, 0);
+    steer.subVectors(_s2, this.vel).multiplyScalar(1.6);
+    this.avoidBounds(steer);
+    this.avoidObstacles(steer, world);
+    this.social(steer, world.fishes);
+    const maxF = 1.5 + this.maxSpeed;
+    if (steer.length() > maxF) steer.setLength(maxF);
+    this.vel.addScaledVector(steer, dt);
+    this.vel.y = clamp(this.vel.y, -0.32, 0.32);
+    const lim = this.maxSpeed * 1.15 + 0.05;
+    if (this.vel.length() > lim) this.vel.setLength(lim);
+    this.pos.addScaledVector(this.vel, dt);
+    this.hardLimits();
+
+    // orientation: face the velocity (or a point of interest when hovering), turn gradually, bank into turns
+    const spd = this.vel.length();
+    const dir = _s3;
+    if (spd > 1e-3) dir.copy(this.vel).divideScalar(spd); else dir.copy(this.fwd);
+    if (this.faceDir) {
+      _s4.subVectors(this.faceDir, this.pos); _s4.y *= 0.3; _s4.normalize();
+      dir.lerp(_s4, clamp(1 - spd / 0.25, 0, 1)).normalize();
+    }
+    dir.y = clamp(dir.y, -0.42, 0.42);
+    dir.normalize();
+    const yaw = Math.atan2(dir.x, dir.z);
+    let dyaw = yaw - this.prevYaw;
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    this.prevYaw = yaw;
+    this.bank = damp(this.bank, clamp((-dyaw / dt) * 0.28, -0.5, 0.5), 3, dt);
+    quatFromForward(dir, _q1).multiply(_q2.setFromAxisAngle(Z_AXIS, this.bank));
+    this.group.quaternion.slerp(_q1, 1 - Math.exp(-dt * this.cfg.turn));
+    this.fwd.set(0, 0, 1).applyQuaternion(this.group.quaternion);
+    this.group.position.copy(this.pos);
+    this.animate(dt, t, spd);
+  }
+
+  animate(dt, t, spd) {
+    this.accel = damp(this.accel, Math.max(0, (spd - this.prevSpeed) / dt), 6, dt);
+    this.prevSpeed = spd;
+    const hovering = spd < 0.12;
+    this.wagRate = damp(this.wagRate, 5 + spd * 15 + this.accel * 6, 4, dt);
+    this.wagPhase += this.wagRate * dt;
+    this.tailAmp = damp(this.tailAmp, clamp(0.2 + spd * 0.55 + this.accel * 0.35, 0.16, 0.75) * (hovering ? 0.75 : 1), 3, dt);
+    const und = 0.008 + spd * 0.04;
+    this.u.uWag.value = this.wagPhase;
+    this.u.uUndulate.value = und;
+    this.u.uTailBend.value = Math.sin(this.wagPhase - 1.7) * this.tailAmp * 0.09 * (1 + this.accel);
+    this.tailPivot.rotation.y = Math.sin(this.wagPhase - 0.9) * this.tailAmp;
+    this.tailPivot.position.x = Math.sin(this.wagPhase) * und;
+    this.flapPhase += (hovering ? 9 : 6.5) * dt;
+    const flapAmp = hovering ? 0.55 : clamp(0.38 - spd * 0.25, 0.12, 0.38);
+    const fold = hovering ? 0.35 : 0.55 + spd * 0.4;
+    this.pecL.rotation.y = -(fold + Math.sin(this.flapPhase) * flapAmp);
+    this.pecR.rotation.y = fold + Math.sin(this.flapPhase + 0.4) * flapAmp;
+    this.dorsal.rotation.z = Math.sin(this.wagPhase * 0.5) * 0.04;
+    this.anal.rotation.z = -Math.sin(this.wagPhase * 0.5 + 1) * 0.04;
+    this.pelvic.forEach((p, i) => { p.rotation.x = 0.2 + Math.sin(this.flapPhase * 0.7 + i) * 0.12; });
+    this.nibble = Math.max(0, this.nibble - dt * 3);
+    const nib = Math.sin(this.nibble * Math.PI);
+    this.root.position.set(0, Math.sin(t * 1.9 + this.seed) * 0.012, nib * 0.035);
+    this.mouthMesh.scale.y = 0.32 + nib * 0.5;
+  }
+}
+
+/* ============================================================================
+   12. Bubble system (pooled, instanced)
+   ========================================================================== */
+const _b1 = new THREE.Vector3();
+class BubbleSystem {
+  constructor(max = 180) {
+    this.items = Array.from({ length: max }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), r: 0, age: 0, ph: 0, wob: 0, wf: 6 }));
+    const geo = new THREE.SphereGeometry(1, 16, 12);
+    this.alpha = new THREE.InstancedBufferAttribute(new Float32Array(max), 1);
+    this.alpha.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aAlpha', this.alpha);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uNight: U.uNight },
+      vertexShader: /* glsl */`
+        attribute float aAlpha;
+        varying float vAlpha; varying vec3 vN; varying vec3 vV;
+        void main() {
+          vec4 mv = modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+          vN = normalize( normalMatrix * mat3( instanceMatrix ) * normal );
+          vV = normalize( -mv.xyz );
+          vAlpha = aAlpha;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: /* glsl */`
+        uniform float uNight;
+        varying float vAlpha; varying vec3 vN; varying vec3 vV;
+        void main() {
+          vec3 n = normalize( vN );
+          float rim = pow( 1.0 - abs( dot( n, normalize( vV ) ) ), 2.2 );
+          float spec = pow( max( dot( n, normalize( vec3( -0.35, 0.6, 0.75 ) ) ), 0.0 ), 40.0 );
+          vec3 c = vec3( 0.72, 0.9, 1.0 ) * ( rim * 0.85 + 0.05 ) + vec3( 1.0 ) * spec * 0.9;
+          gl_FragColor = vec4( c * mix( 1.0, 0.6, uNight ), vAlpha );
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.mesh = new THREE.InstancedMesh(geo, mat, max);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 5;
+    scene.add(this.mesh);
+    this.timer = 0;
+    this.dummy = new THREE.Object3D();
+  }
+  spawn(p, r, vx, vy, vz) {
+    const b = this.items.find((it) => !it.active);
+    if (!b) return;
+    b.active = true; b.pos.copy(p); b.vel.set(vx, vy, vz); b.r = r; b.age = 0;
+    b.ph = rand() * TAU; b.wob = rr(0.4, 1.0); b.wf = rr(5, 9);
+  }
+  burst(p, n, strong) {
+    for (let i = 0; i < n; i++) {
+      this.spawn(_b1.copy(p).add(V3(rr(-0.08, 0.08), rr(0, 0.04), rr(-0.06, 0.06))), rr(0.03, strong ? 0.065 : 0.05), rr(-0.25, 0.25), rr(0.15, 0.4), rr(-0.25, 0.25));
+    }
+  }
+  update(dt) {
+    // continuous aerator stream: roughly 2–4 bubbles per second
+    this.timer -= dt;
+    while (this.timer <= 0) {
+      this.timer += rr(0.25, 0.45);
+      const a = FEATURE.airStone;
+      this.spawn(_b1.set(a.x + rr(-0.03, 0.03), a.y, a.z + rr(-0.03, 0.03)), rr(0.014, 0.034), rr(-0.02, 0.02), rr(0.1, 0.2), rr(-0.02, 0.02));
+    }
+    let n = 0;
+    for (const b of this.items) {
+      if (!b.active) continue;
+      b.age += dt;
+      b.vel.y = damp(b.vel.y, 0.42 + b.r * 7, 1.6, dt);
+      b.vel.x = damp(b.vel.x, 0, 1.4, dt);
+      b.vel.z = damp(b.vel.z, 0, 1.4, dt);
+      b.pos.addScaledVector(b.vel, dt);
+      b.pos.x = clamp(b.pos.x, -INNER_X + 0.05, INNER_X - 0.05);
+      b.pos.z = clamp(b.pos.z, -INNER_Z + 0.05, INNER_Z - 0.05);
+      if (b.pos.y >= WATER_Y - 0.015) {
+        b.active = false;
+        if (b.r > 0.04) water.addRipple(b.pos.x, b.pos.z, 0.008, 0.04);
+        continue;
+      }
+      const s = b.r * (1 + 0.45 * smooth(WATER_Y - 0.8, WATER_Y, b.pos.y)) * (1 + 0.08 * Math.sin(b.age * 13 + b.ph));
+      this.dummy.position.set(b.pos.x + Math.sin(b.age * b.wf + b.ph) * 0.06 * b.wob, b.pos.y, b.pos.z + Math.cos(b.age * b.wf * 0.8 + b.ph) * 0.05 * b.wob);
+      this.dummy.scale.set(s, s * 0.92, s);
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(n, this.dummy.matrix);
+      this.alpha.array[n] = (1 - smooth(WATER_Y - 0.25, WATER_Y - 0.02, b.pos.y)) * smooth(0, 0.15, b.age);
+      n++;
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.alpha.needsUpdate = true;
+  }
+}
+
+/* ============================================================================
+   13. Food, ripples and user interaction
+   ========================================================================== */
+class FoodSystem {
+  constructor(max = 64) {
+    this.items = Array.from({ length: max }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), age: 0, ph: 0, landed: false, rest: 0, spin: new THREE.Euler() }));
+    const geo = new THREE.IcosahedronGeometry(0.02, 0).scale(1, 0.55, 1);
+    this.mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xc8743a, roughness: 0.75, emissive: 0x2a1205 }), max);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    scene.add(this.mesh);
+    this.lastDrop = -10;
+    this.dummy = new THREE.Object3D();
+  }
+  drop(x, z) {
+    const now = performance.now() / 1000;
+    if (now - this.lastDrop < 0.45) return false;   // cooldown against spamming
+    this.lastDrop = now;
+    x = clamp(x, -INNER_X + 0.25, INNER_X - 0.25);
+    z = clamp(z, -INNER_Z + 0.25, INNER_Z - 0.25);
+    const n = Math.round(rr(8, 15));
+    for (let i = 0; i < n; i++) {
+      const f = this.items.find((it) => !it.active);
+      if (!f) break;   // pool exhausted: hard cap on particles
+      f.active = true; f.landed = false; f.rest = 0; f.age = 0; f.ph = rand() * TAU;
+      f.pos.set(x + rr(-0.13, 0.13), WATER_Y - 0.015, z + rr(-0.13, 0.13));
+      f.vel.set(rr(-0.05, 0.05), -rr(0.02, 0.06), rr(-0.05, 0.05));
+      f.spin.set(rand() * TAU, rand() * TAU, 0);
+    }
+    water.addRipple(x, z, 0.035, 0.6);
+    ripples.spawnWater(x, z);
+    return true;
+  }
+  nearest(p, radius) {
+    let best = null, bd = radius;
+    for (const f of this.items) { if (!f.active) continue; const d = f.pos.distanceTo(p); if (d < bd) { bd = d; best = f; } }
+    return best;
+  }
+  eat(f) { f.active = false; bubbles.spawn(f.pos, 0.012, 0, 0.1, 0); }
+  update(dt, t) {
+    let n = 0;
+    for (const f of this.items) {
+      if (!f.active) continue;
+      f.age += dt;
+      if (!f.landed) {
+        f.vel.y = damp(f.vel.y, -0.11, 0.8, dt);
+        f.vel.x = damp(f.vel.x, Math.sin(t * 0.7 + f.ph) * 0.05, 1.2, dt);
+        f.vel.z = damp(f.vel.z, Math.cos(t * 0.6 + f.ph * 1.3) * 0.04, 1.2, dt);
+        f.pos.addScaledVector(f.vel, dt);
+        f.pos.x = clamp(f.pos.x, -INNER_X + 0.05, INNER_X - 0.05);
+        f.pos.z = clamp(f.pos.z, -INNER_Z + 0.05, INNER_Z - 0.05);
+        f.spin.x += dt * 1.5; f.spin.y += dt * 1.1;
+        const g = terrainHeight(f.pos.x, f.pos.z) + 0.012;
+        if (f.pos.y <= g) { f.pos.y = g; f.landed = true; }
+      } else f.rest += dt;
+      if (f.rest > 12 || f.age > 45) { f.active = false; continue; }
+      const s = f.rest > 10 ? 1 - (f.rest - 10) / 2 : 1;
+      this.dummy.position.copy(f.pos);
+      this.dummy.rotation.copy(f.spin);
+      this.dummy.scale.setScalar(Math.max(0.01, s));
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(n++, this.dummy.matrix);
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+class RippleRings {
+  constructor(n = 8) {
+    const geo = new THREE.RingGeometry(0.82, 1.0, 48);
+    this.rings = Array.from({ length: n }, () => {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xd8f6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      m.visible = false;
+      m.renderOrder = 6;
+      scene.add(m);
+      return { m, t: 0, life: 1, maxR: 0.5 };
+    });
+    this.i = 0;
+  }
+  spawn(pos, normal, maxR = 0.5, life = 1.3) {
+    const r = this.rings[this.i++ % this.rings.length];
+    r.m.position.copy(pos);
+    r.m.quaternion.setFromUnitVectors(Z_AXIS, normal);
+    r.t = 0; r.life = life; r.maxR = maxR; r.m.visible = true;
+  }
+  spawnWater(x, z) { this.spawn(V3(x, WATER_Y + 0.012, z), UP, 0.55, 1.6); }
+  update(dt) {
+    for (const r of this.rings) {
+      if (!r.m.visible) continue;
+      r.t += dt;
+      const k = r.t / r.life;
+      if (k >= 1) { r.m.visible = false; continue; }
+      r.m.scale.setScalar(0.04 + r.maxR * (1 - (1 - k) ** 3));
+      r.m.material.opacity = 0.55 * (1 - k) ** 2;
+    }
+  }
+}
+
+function isDescendant(obj, root) { for (let o = obj; o; o = o.parent) if (o === root) return true; return false; }
+
+function initInteraction() {
+  const el = renderer.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  let down = null, pending = null, lastTap = 0;
+  const setRay = (e) => {
+    const r = el.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+  };
+  const tapGlass = (hit) => {
+    const now = performance.now();
+    if (now - lastTap < 700) return;
+    lastTap = now;
+    const n = hit.object.userData.normal;
+    ripples.spawn(hit.point.clone().addScaledVector(n, 0.035), n, 0.35, 0.9);
+    for (const f of fishes) if (f.pos.distanceTo(hit.point) < 2.0) f.startle(hit.point);
+    creatures.startle(hit.point);
+  };
+  const onClick = (e) => {
+    setRay(e);
+    const special = ray.intersectObjects([chest.group, duck.group], true)[0];
+    if (special) {
+      if (isDescendant(special.object, chest.group)) chest.trigger(true); else duck.poke();
+      return;
+    }
+    const surf = ray.intersectObject(water.surface, false)[0];
+    const glass = ray.intersectObjects(tank.panels.filter((p) => p !== tank.bottom), false)[0];
+    if (pending) clearTimeout(pending);
+    // wait briefly so a double-click is not also treated as a tap
+    pending = setTimeout(() => {
+      pending = null;
+      if (surf && (!glass || surf.distance < glass.distance)) food.drop(surf.point.x, surf.point.z);
+      else if (glass) tapGlass(glass);
+    }, 260);
+  };
+  el.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now(), b: e.button }; });
+  el.addEventListener('pointerup', (e) => {
+    if (!down || down.b !== 0) { down = null; return; }
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), quick = performance.now() - down.t < 450;
+    down = null;
+    if (moved < 6 && quick) onClick(e);
+  });
+  el.addEventListener('dblclick', (e) => {
+    if (pending) { clearTimeout(pending); pending = null; }
+    setRay(e);
+    const hit = ray.intersectObjects([water.surface, water.volume], false)[0];
+    if (hit) food.drop(hit.point.x, hit.point.z);
+  });
+}
+
+/* ============================================================================
+   14. Secondary creatures — snail, cleaner shrimp, crab, the thing in the helmet
+   ========================================================================== */
+const _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3(), _c3 = new THREE.Vector3(), _cm = new THREE.Matrix4();
+
+function createSnail() {
+  const pivot = new THREE.Group();
+  pivot.name = 'snail';
+  pivot.scale.setScalar(0.75);
+  const footMat = new THREE.MeshPhysicalMaterial({ color: 0xb9ab95, roughness: 0.4, clearcoat: 0.6 });
+  const foot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 18, 12), footMat);
+  foot.scale.set(0.7, 0.3, 1.9);
+  foot.position.y = 0.014;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 10), footMat);
+  head.position.set(0, 0.026, 0.085);
+  head.scale.set(1, 0.8, 1.15);
+  const tipMat = new THREE.MeshStandardMaterial({ color: 0x1a1612 });
+  const antennae = [-1, 1].map((sx) => {
+    const a = new THREE.Group();
+    a.position.set(sx * 0.013, 0.04, 0.1);
+    a.rotation.set(0.75, 0, -sx * 0.35);
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.0032, 0.0048, 0.06, 6).translate(0, 0.03, 0), footMat);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 8, 6), tipMat);
+    tip.position.y = 0.062;
+    a.add(stalk, tip);
+    return a;
+  });
+  const shell = new THREE.Mesh(makeSpiralShellGeometry({ turns: 3.0, b: 0.2, tube: 0.62, helix: 0.45, size: 0.055, c1: '#6e4326', c2: '#d9b48a' }),
+    new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.2 }));
+  shell.position.set(0, 0.075, -0.03);
+  shell.rotation.set(0, 0, -Math.PI / 2);
+  pivot.add(foot, head, ...antennae, shell);
+  shadows(pivot);
+  scene.add(pivot);
+  const st = { y: -0.5, z: 0.15, h: 0.9 };
+  return {
+    update(dt, t) {
+      const yMin = terrainHeight(-INNER_X + 0.1, st.z) + 0.25;
+      let want = null;
+      if (st.y < yMin + 0.12 || st.y > 1.2 || Math.abs(st.z) > 1.3) want = Math.atan2(-0.2 - st.y, -st.z);
+      if (want !== null) {
+        const d = Math.atan2(Math.sin(want - st.h), Math.cos(want - st.h));
+        st.h += clamp(d, -0.5 * dt, 0.5 * dt);
+      } else st.h += vnoise(t * 0.06, 4.2, 0) * 0.35 * dt;
+      const sp = 0.028 * (0.75 + 0.25 * Math.sin(t * 0.7));
+      st.y += Math.sin(st.h) * sp * dt;
+      st.z += Math.cos(st.h) * sp * dt;
+      pivot.position.set(-INNER_X + 0.003, st.y, st.z);
+      const fwd = _c1.set(0, Math.sin(st.h), Math.cos(st.h)), up = _c2.set(1, 0, 0);
+      _cm.makeBasis(_c3.crossVectors(up, fwd), up, fwd);
+      pivot.quaternion.setFromRotationMatrix(_cm);
+      antennae.forEach((a, i) => { a.rotation.x = 0.75 + Math.sin(t * 1.6 + i * 1.7) * 0.15; });
+      shell.rotation.x = Math.sin(t * 0.8) * 0.05;
+    },
+  };
+}
+
+function createShrimp() {
+  const root = new THREE.Group();
+  root.name = 'cleanerShrimp';
+  const body = new THREE.Group();
+  root.add(body);
+  const shellMat = new THREE.MeshPhysicalMaterial({ color: 0xff6a4a, roughness: 0.3, clearcoat: 0.7, transparent: true, opacity: 0.85, emissive: 0x3a0804, emissiveIntensity: 0.4 });
+  const whiteMat = new THREE.MeshStandardMaterial({ color: 0xfaf4ea, roughness: 0.35 });
+  const redMat = new THREE.MeshStandardMaterial({ color: 0xc8261c, roughness: 0.4 });
+  const blackMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.2 });
+  const segs = [[0.07, 0.035, 0.028], [0.03, 0.04, 0.024], [0.0, 0.042, 0.022], [-0.028, 0.04, 0.02], [-0.053, 0.034, 0.017], [-0.074, 0.026, 0.014], [-0.09, 0.018, 0.011]];
+  segs.forEach(([z, y, r], i) => {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), shellMat);
+    s.position.set(0, y, z);
+    s.scale.set(0.8, 0.85, i === 0 ? 1.6 : 1.35);
+    const stripe = new THREE.Mesh(new THREE.SphereGeometry(r * 0.35, 8, 6), whiteMat);
+    stripe.position.set(0, y + r * 0.78, z);
+    stripe.scale.set(0.5, 0.3, i === 0 ? 4.4 : 3.2);
+    body.add(s, stripe);
+  });
+  for (const a of [-0.6, 0, 0.6]) {
+    const fan = new THREE.Mesh(new THREE.SphereGeometry(0.014, 10, 8), a === 0 ? whiteMat : redMat);
+    fan.position.set(Math.sin(a) * 0.012, 0.014, -0.108 - Math.cos(a) * 0.01);
+    fan.scale.set(0.9, 0.25, 1.8);
+    fan.rotation.y = a;
+    body.add(fan);
+  }
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0075, 8, 6), blackMat);
+    eye.position.set(sx * 0.016, 0.05, 0.1);
+    body.add(eye);
+  }
+  const antennae = [-1, 1].map((sx) => {
+    const g = new THREE.Group();
+    g.position.set(sx * 0.008, 0.045, 0.11);
+    const long = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V3(0, 0, 0), V3(sx * 0.04, 0.07, 0.1), V3(sx * 0.1, 0.13, 0.22), V3(sx * 0.17, 0.1, 0.36)]), 24, 0.0024, 4), whiteMat);
+    const short = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V3(0, 0, 0), V3(sx * 0.02, 0.03, 0.05), V3(sx * 0.03, 0.035, 0.1)]), 12, 0.002, 4), whiteMat);
+    g.add(long, short);
+    body.add(g);
+    return g;
+  });
+  const legs = [];
+  for (let k = 0; k < 5; k++) for (const sx of [-1, 1]) {
+    const p = new THREE.Group();
+    p.position.set(sx * 0.012, 0.022, 0.08 - k * 0.022);
+    p.rotation.z = sx * 0.5;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0018, 0.05, 4).translate(0, -0.025, 0), k % 2 ? whiteMat : redMat);
+    p.add(leg);
+    body.add(p);
+    legs.push(p);
+  }
+  const x = -0.18, z = 0.45;
+  const baseYaw = Math.atan2(-0.85 - x, -0.05 - z);
+  const base = V3(x, terrainHeight(x, z) + 0.018, z);
+  root.position.copy(base);
+  root.rotation.y = baseYaw;
+  shadows(root);
+  scene.add(root);
+  const st = { retreat: 0, scare: 0 };
+  return {
+    startle() { st.scare = 1.5; },
+    update(dt, t, fishList) {
+      let near = 9;
+      for (const f of fishList) near = Math.min(near, f.pos.distanceTo(root.position));
+      st.scare = Math.max(0, st.scare - dt);
+      const want = near < 0.8 || st.scare > 0 ? 0.16 : 0;
+      st.retreat = damp(st.retreat, want, want > 0 ? 3 : 0.6, dt);
+      const yaw = baseYaw + Math.sin(t * 0.3) * 0.25;
+      const bx = base.x - Math.sin(yaw) * st.retreat, bz = base.z - Math.cos(yaw) * st.retreat;
+      root.position.set(bx, terrainHeight(bx, bz) + 0.018, bz);
+      root.rotation.y = yaw;
+      body.position.y = Math.sin(t * 2.1) * 0.003;
+      body.rotation.x = Math.sin(t * 1.3) * 0.04;
+      antennae.forEach((a, i) => { a.rotation.y = Math.sin(t * 1.7 + i * 2) * 0.18; a.rotation.x = Math.sin(t * 1.1 + i) * 0.1; });
+      const busy = Math.abs(st.retreat - want) > 0.01 ? 1 : 0.35;
+      legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 6 + i * 0.9) * 0.25 * busy; });
+    },
+  };
+}
+
+function createCrab(burrow) {
+  const root = new THREE.Group();
+  root.name = 'crab';
+  const shellMat = new THREE.MeshStandardMaterial({ color: 0xc4542e, roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1a0f0a, roughness: 0.4 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), shellMat);
+  body.scale.set(1.35, 0.55, 1.0);
+  body.position.y = 0.035;
+  root.add(body);
+  const legs = [], claws = [];
+  for (const sx of [-1, 1]) {
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.03, 5), shellMat);
+    stalk.position.set(sx * 0.018, 0.06, 0.035);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), dark);
+    eye.position.set(sx * 0.018, 0.077, 0.037);
+    const claw = new THREE.Group();
+    claw.position.set(sx * 0.05, 0.03, 0.04);
+    const pincer = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), shellMat);
+    pincer.scale.set(1.0, 0.75, 1.4);
+    pincer.position.set(sx * 0.01, 0, 0.03);
+    const finger = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.03, 6).rotateX(Math.PI / 2), dark);
+    finger.position.set(sx * 0.012, 0.004, 0.064);
+    claw.add(pincer, finger);
+    root.add(stalk, eye, claw);
+    claws.push(claw);
+    for (let k = 0; k < 3; k++) {
+      const p = new THREE.Group();
+      p.position.set(sx * 0.055, 0.032, 0.02 - k * 0.025);
+      p.rotation.z = sx * 1.0;
+      p.add(new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.003, 0.07, 4).translate(0, -0.035, 0), shellMat));
+      root.add(p);
+      legs.push(p);
+    }
+  }
+  const yaw = 0.35;
+  root.rotation.y = yaw;
+  root.visible = false;
+  shadows(root);
+  scene.add(root);
+  const st = { phase: 'hidden', t: 0, wait: rr(5, 9), off: 0, dir: 1, y: -0.12 };
+  return {
+    update(dt, t) {
+      st.t += dt;
+      switch (st.phase) {
+        case 'hidden': if (st.t > st.wait) { st.phase = 'emerge'; st.t = 0; st.dir = rand() < 0.5 ? 1 : -1; root.visible = true; } break;
+        case 'emerge': st.y = lerp(-0.1, 0, easeInOut(st.t)); if (st.t > 1) { st.phase = 'walk'; st.t = 0; } break;
+        case 'walk': st.off = st.dir * 0.42 * easeInOut(st.t / 2.4); if (st.t > 2.4) { st.phase = 'pause'; st.t = 0; } break;
+        case 'pause': if (st.t > 1.6) { st.phase = 'back'; st.t = 0; } break;
+        case 'back': st.off = st.dir * 0.42 * (1 - easeInOut(st.t / 2.4)); if (st.t > 2.4) { st.phase = 'descend'; st.t = 0; } break;
+        case 'descend': st.y = lerp(0, -0.1, easeInOut(st.t / 0.9)); if (st.t > 0.9) { st.phase = 'hidden'; st.t = 0; st.wait = rr(10, 20); root.visible = false; } break;
+      }
+      const walking = st.phase === 'walk' || st.phase === 'back';
+      const x = burrow.x + Math.cos(yaw) * st.off, z = burrow.z - Math.sin(yaw) * st.off;
+      root.position.set(x, terrainHeight(x, z) + st.y, z);
+      legs.forEach((l, i) => { l.rotation.x = walking ? Math.sin(t * 16 + i * 1.3) * 0.45 : 0; });
+      claws.forEach((c, i) => { c.rotation.x = Math.sin(t * 2 + i) * 0.15; });
+    },
+  };
+}
+
+function createCreatures(details) {
+  const snail = createSnail(), shrimp = createShrimp(), crab = createCrab(details.burrow);
+  const eyes = details.helmetEyes;
+  let blinkIn = rr(2, 5), blink = 0;
+  return {
+    startle(p) { shrimp.startle(p); },
+    update(dt, t) {
+      snail.update(dt, t);
+      shrimp.update(dt, t, fishes);
+      crab.update(dt, t);
+      blinkIn -= dt;
+      if (blinkIn < 0) { blink = 0.16; blinkIn = rr(3, 8); }
+      blink -= dt;
+      eyes.scale.y = blink > 0 ? 0.1 : 1;
+      eyes.position.x = Math.sin(t * 0.5) * 0.008;   // glancing around
+    },
+  };
+}
+
+/* ============================================================================
+   15. Suspended particles, plankton and microbubbles (one Points draw call)
+   ========================================================================== */
+function createParticles() {
+  const nDust = 620, nPlank = 48, nMicro = 70, N = nDust + nPlank + nMicro;
+  const pos = new Float32Array(N * 3), seed = new Float32Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    const type = i < nDust ? 0 : i < nDust + nPlank ? 1 : 2;
+    pos[i * 3] = rr(-INNER_X + 0.1, INNER_X - 0.1);
+    pos[i * 3 + 1] = rr(-1.7, WATER_Y - 0.1);
+    pos[i * 3 + 2] = rr(-INNER_Z + 0.22, INNER_Z - 0.22);
+    seed[i * 4] = rand() * TAU;
+    seed[i * 4 + 1] = rr(0.5, 1.5);
+    seed[i * 4 + 2] = type === 0 ? rr(1.6, 3.2) : type === 1 ? rr(3.0, 5.0) : rr(2.2, 3.6);
+    seed[i * 4 + 3] = type;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: U.uTime, uPixelRatio: U.uPixelRatio, uNight: U.uNight, uWaterY: { value: WATER_Y }, uFloorY: { value: -1.9 }, uHalfX: { value: INNER_X - 0.06 } },
+    vertexShader: /* glsl */`
+      uniform float uTime; uniform float uPixelRatio; uniform float uNight; uniform float uWaterY; uniform float uFloorY; uniform float uHalfX;
+      attribute vec4 aSeed;
+      varying float vAlpha; varying vec3 vColor; varying float vType;
+      void main() {
+        vec3 p = position;
+        float ph = aSeed.x, sp = aSeed.y, type = aSeed.w, t = uTime;
+        p.x += sin( t * 0.07 * sp + ph ) * 0.25 + t * 0.012 * sp;
+        p.z += cos( t * 0.05 * sp + ph * 1.3 ) * 0.18;
+        p.y += sin( t * 0.11 * sp + ph * 2.1 ) * 0.1;
+        if ( type > 1.5 ) p.y = uFloorY + mod( p.y - uFloorY + t * 0.05 * sp, uWaterY - uFloorY );
+        p.x = mod( p.x + uHalfX, 2.0 * uHalfX ) - uHalfX;
+        p.y = min( p.y, uWaterY - 0.04 );
+        vec4 mv = modelViewMatrix * vec4( p, 1.0 );
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = aSeed.z * uPixelRatio * ( 12.0 / -mv.z );
+        float glow = type > 0.5 && type < 1.5 ? pow( max( 0.0, sin( t * 0.33 * sp + ph * 7.0 ) ), 28.0 ) : 0.0;
+        vAlpha = type < 0.5 ? 0.18 : ( type < 1.5 ? 0.06 + 0.08 * uNight + glow * ( 0.5 + 0.7 * uNight ) : 0.3 );
+        vColor = type < 0.5 ? vec3( 0.75, 0.85, 0.82 ) : ( type < 1.5 ? mix( vec3( 0.35, 1.0, 0.8 ), vec3( 0.45, 0.8, 1.0 ), fract( ph ) ) : vec3( 0.85, 0.96, 1.0 ) );
+        vType = type;
+      }`,
+    fragmentShader: /* glsl */`
+      varying float vAlpha; varying vec3 vColor; varying float vType;
+      void main() {
+        float d = length( gl_PointCoord - 0.5 );
+        float a = 1.0 - smoothstep( 0.18, 0.5, d );
+        if ( vType > 1.5 ) a = ( 1.0 - smoothstep( 0.38, 0.5, d ) ) * ( 0.35 + 0.65 * smoothstep( 0.12, 0.38, d ) );
+        gl_FragColor = vec4( vColor, a * vAlpha );
+        #include <colorspace_fragment>
+      }`,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  points.renderOrder = 7;
+  scene.add(points);
+  return points;
+}
+
+/* ============================================================================
+   16. Interface, day/night, animation loop, resize, adaptive quality
+   ========================================================================== */
+const sim = { paused: false, night: 0, nightTarget: 0, time: 0, quality: 0, elapsed: 0, frameAcc: 0, frameN: 0 };
+const WATER_DAY = col('#3aa6c4'), WATER_NIGHT = col('#123a66'), SURF_DAY = col('#7fd8f0'), SURF_NIGHT = col('#2a5a8a');
+
+function feedRandom() {
+  const f = pick(fishes);
+  food.drop(clamp(f.pos.x + rr(-0.6, 0.6), -2.6, 2.6), clamp(f.pos.z + rr(-0.4, 0.4), -1.0, 1.1));
+}
+function setUI(show) {
+  document.getElementById('panel').classList.toggle('hidden', !show);
+  document.getElementById('showUI').classList.toggle('visible', !show);
+  if (!show) document.getElementById('hint').classList.add('hide');
+}
+function toggleNight() {
+  sim.nightTarget = sim.nightTarget > 0.5 ? 0 : 1;
+  const b = document.getElementById('btnDay');
+  b.textContent = sim.nightTarget ? '☀ Day' : '☾ Night';
+  b.setAttribute('aria-pressed', String(!!sim.nightTarget));
+}
+function togglePause() {
+  sim.paused = !sim.paused;
+  const b = document.getElementById('btnPause');
+  b.textContent = sim.paused ? 'Resume' : 'Pause';
+  b.setAttribute('aria-pressed', String(sim.paused));
+}
+function initUI() {
+  const $ = (id) => document.getElementById(id);
+  $('btnFeed').addEventListener('click', feedRandom);
+  $('btnDay').addEventListener('click', toggleNight);
+  $('btnPause').addEventListener('click', togglePause);
+  $('btnCam').addEventListener('click', resetCamera);
+  $('btnHide').addEventListener('click', () => setUI(false));
+  $('showUI').addEventListener('click', () => setUI(true));
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'h') setUI($('panel').classList.contains('hidden'));
+    else if (k === 'f') feedRandom();
+    else if (k === 'n') toggleNight();
+    else if (k === 'p') togglePause();
+  });
+  setTimeout(() => $('hint').classList.add('hide'), 7000);
+}
+
+function applyDayNight(n) {
+  U.uNight.value = n;
+  lights.lampWarm.intensity = lerp(58, 16, n);
+  lights.lampCool.intensity = lerp(20, 13, n);
+  lights.ambient.intensity = lerp(0.35, 0.1, n);
+  lights.hemi.intensity = lerp(0.5, 0.14, n);
+  lights.key.intensity = lerp(1.3, 0.22, n);
+  lights.cyan.intensity = lerp(9, 5, n);
+  lights.violet.intensity = lerp(1.8, 3.2, n);
+  U.uCaustic.value = lerp(0.62, 0.24, n);
+  renderer.toneMappingExposure = lerp(1.1, 0.98, n);
+  water.volMat.color.copy(WATER_DAY).lerp(WATER_NIGHT, n);
+  water.volMat.opacity = lerp(0.12, 0.19, n);
+  water.surfMat.color.copy(SURF_DAY).lerp(SURF_NIGHT, n);
+  tank.warmStripMat.color.setRGB(lerp(1.7, 0.55, n), lerp(1.48, 0.48, n), lerp(1.15, 0.45, n));
+  anemone.setGlow(lerp(0.1, 0.9, n));
+}
+
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.fov = clamp(36 / Math.min(1, camera.aspect * 1.05), 36, 62);   // keep the tank framed on portrait screens
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  U.uPixelRatio.value = renderer.getPixelRatio();
+}
+
+/** Fallback for slow GPUs: drop glass transmission first, then render resolution. */
+function adaptQuality(raw) {
+  if (PARAMS.has('noadapt') || sim.quality >= 2 || document.hidden) return;
+  sim.elapsed += raw;
+  if (sim.elapsed < 3) return;
+  sim.frameAcc += raw;
+  sim.frameN++;
+  if (sim.frameAcc < 2.5) return;
+  const avg = sim.frameAcc / sim.frameN;
+  sim.frameAcc = 0; sim.frameN = 0;
+  if (avg <= 1 / 38) return;
+  sim.quality++;
+  if (sim.quality === 1) { tank.glassMat.transmission = 0; tank.glassMat.opacity = 0.08; }
+  else { renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1)); onResize(); }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const raw = Math.min(clock.getDelta(), 0.1);
+  const dt = sim.paused ? 0 : raw;
+  sim.time += dt;
+  U.uTime.value = sim.time;
+  sim.night = damp(sim.night, sim.nightTarget, 1.1, raw);
+  applyDayNight(sim.night);
+  if (dt > 0) {
+    water.update(sim.time, dt);
+    for (const f of fishes) f.update(dt, sim.time, WORLD);
+    anemone.update(dt, fishes);
+    chest.update(dt);
+    bubbles.update(dt);
+    food.update(dt, sim.time);
+    creatures.update(dt, sim.time);
+    duck.update(dt);
+  }
+  ripples.update(raw);
+  updateCamera(raw);
+  renderer.render(scene, camera);
+  adaptQuality(raw);
+}
+
+function start() {
+  initRenderer();
+  initCamera();
+  lights = createLights();
+  tank = createTank();
+  water = createWater();
+  createTerrain();
+  createGravel();
+  createRocks();
+  createDriftwood();
+  createRuins();
+  chest = createChest();
+  createBottle();
+  const details = createDetails();
+  duck = createDuck();
+  createPlants();
+  createCoral();
+  anemone = createAnemone();
+  buildMoss();
+  bubbles = new BubbleSystem();
+  food = new FoodSystem();
+  ripples = new RippleRings();
+  particles = createParticles();
+  creatures = createCreatures(details);
+  FISH_BODY_GEO = buildFishBodyGeometry();
+  for (const cfg of FISH_CONFIGS) {
+    const f = new Clownfish(cfg);
+    fishes.push(f);
+    scene.add(f.group);
+  }
+  Object.assign(WORLD, { fishes, food, anemone });
+  initInteraction();
+  initUI();
+  window.addEventListener('resize', onResize);
+  onResize();
+  animate();
+}
+
+const webglOK = (() => {
+  try { const c = document.createElement('canvas'); return !!(window.WebGLRenderingContext && (c.getContext('webgl2') || c.getContext('webgl'))); }
+  catch (e) { return false; }
+})();
+if (webglOK) start();
+else document.getElementById('fallback').hidden = false;
+</script>
+</body>
+</html>
