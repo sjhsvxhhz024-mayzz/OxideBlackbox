@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clownfish Reef — Procedural 3D Aquarium Diorama</title>
+<style>
+  :root { color-scheme: dark; --ink: #d7ecf4; --glass: rgba(10, 28, 44, 0.48); --line: rgba(170, 225, 255, 0.16); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #02070d; }
+  body { font: 13px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+  #app { position: fixed; inset: 0; }
+  #app canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; cursor: grab; }
+  #app canvas:active { cursor: grabbing; }
+  #vignette { position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 95% at 50% 45%, rgba(0,0,0,0) 55%, rgba(0,5,12,0.40) 80%, rgba(0,2,6,0.80) 100%); }
+  #hint { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); padding: 9px 16px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    letter-spacing: 0.02em; color: rgba(215,236,244,0.92); white-space: nowrap; pointer-events: none;
+    transition: opacity 1.8s ease, transform 1.8s ease; }
+  #hint.hide { opacity: 0; transform: translate(-50%, 8px); }
+  #panel { position: fixed; right: 18px; top: 18px; width: 196px; padding: 10px; border-radius: 14px; background: var(--glass);
+    border: 1px solid var(--line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35); transition: opacity 0.4s ease, transform 0.4s ease; }
+  #panel.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+  #panel h1 { margin: 2px 4px 9px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(200,236,250,0.7); }
+  #panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #panel button, #showUI { appearance: none; border: 1px solid rgba(170,225,255,0.18); background: rgba(120,190,230,0.08); color: var(--ink);
+    font: inherit; padding: 7px 8px; border-radius: 9px; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+  #panel button:hover, #showUI:hover { background: rgba(120,200,240,0.18); border-color: rgba(170,225,255,0.36); }
+  #panel button:focus-visible, #showUI:focus-visible { outline: 2px solid rgba(255,214,150,0.6); outline-offset: 1px; }
+  #panel button.wide { grid-column: span 2; }
+  #panel button[aria-pressed="true"] { background: rgba(255,196,120,0.15); border-color: rgba(255,210,150,0.42); }
+  #showUI { position: fixed; right: 18px; top: 18px; display: none; padding: 6px 11px; background: var(--glass);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #showUI.visible { display: block; }
+  #fallback { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #cfe6f1; }
+  #fallback[hidden] { display: none; }
+  @media (max-width: 560px) {
+    #hint { font-size: 11px; white-space: normal; width: calc(100% - 32px); text-align: center; border-radius: 14px; }
+    #panel { width: 168px; }
+  }
+</style>
+<!-- OrbitControls / BufferGeometryUtils import the bare specifier "three"; the import map points it at the same CDN module. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="vignette"></div>
+<div id="hint">Drag to rotate • Scroll to zoom • Double-click the water to feed the fish</div>
+<div id="panel" role="group" aria-label="Aquarium controls">
+  <h1>Clownfish Reef</h1>
+  <div class="row">
+    <button id="btnFeed" class="wide" title="Drop a pinch of food (F)">Feed fish</button>
+    <button id="btnDay" aria-pressed="false" title="Toggle day / night (N)">☾ Night</button>
+    <button id="btnPause" aria-pressed="false" title="Pause / resume (P)">Pause</button>
+    <button id="btnCam" title="Reset camera">Reset camera</button>
+    <button id="btnHide" title="Hide interface (H)">Hide UI</button>
+  </div>
+</div>
+<button id="showUI" title="Show interface (H)">☰</button>
+<div id="fallback" hidden>
+  <div>
+    <h2 style="font-weight:500;margin:0 0 8px">WebGL is not available</h2>
+    <p style="opacity:.75;margin:0">This aquarium needs a browser with WebGL enabled.</p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+import { mergeGeometries, mergeVertices } from "https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
+
+/* ============================================================================
+   0. Utilities — seeded randomness, value noise, geometry helpers
+   ========================================================================== */
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rand = mulberry32(0x5eaf00d);   // deterministic layout: the same reef every load
+const rr = (a, b) => a + (b - a) * rand();
+const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+const TAU = Math.PI * 2;
+const clamp = THREE.MathUtils.clamp;
+const lerp = THREE.MathUtils.lerp;
+const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
+const easeInOut = (t) => 0.5 - 0.5 * Math.cos(Math.PI * clamp(t, 0, 1));
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const col = (c) => new THREE.Color(c);
+const UP = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const gauss2 = (dx, dz, sx, sz) => Math.exp(-((dx * dx) / (sx * sx) + (dz * dz) / (sz * sz)));
+
+const PERM = new Uint8Array(512);
+const GRAD = new Float32Array(256);
+{
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+  for (let i = 0; i < 256; i++) GRAD[i] = rand() * 2 - 1;
+}
+/** 3D value noise in roughly [-1, 1]. */
+function vnoise(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const X = xi & 255, Y = yi & 255, Z = zi & 255;
+  const A = PERM[X] + Y, B = PERM[X + 1] + Y;
+  const AA = PERM[A] + Z, AB = PERM[A + 1] + Z, BA = PERM[B] + Z, BB = PERM[B + 1] + Z;
+  const g = (i) => GRAD[PERM[i]];
+  return lerp(
+    lerp(lerp(g(AA), g(BA), u), lerp(g(AB), g(BB), u), v),
+    lerp(lerp(g(AA + 1), g(BA + 1), u), lerp(g(AB + 1), g(BB + 1), u), v), w);
+}
+function fbm(x, y, z, oct = 4) {
+  let s = 0, a = 0.5, f = 1;
+  for (let i = 0; i < oct; i++) { s += a * vnoise(x * f, y * f, z * f); f *= 2.03; a *= 0.5; }
+  return s;
+}
+function setVertexColors(geo, fn) {
+  const p = geo.attributes.position, arr = new Float32Array(p.count * 3);
+  const c = new THREE.Color(), v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i); fn(v, c, i);
+    arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return geo;
+}
+function displace(geo, fn) {
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); fn(v, i); p.setXYZ(i, v.x, v.y, v.z); }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+/** Welds a primitive so noise displacement stays crack-free and normals are smooth. */
+function welded(geo) {
+  geo.deleteAttribute('normal'); geo.deleteAttribute('uv');
+  return mergeVertices(geo);
+}
+/** Bakes the transforms of several meshes into one geometry (one draw call per material). */
+function mergeMeshes(meshes, material) {
+  const geos = meshes.map((m) => {
+    m.updateMatrix();
+    let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    g.applyMatrix4(m.matrix);
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal' && name !== 'color') g.deleteAttribute(name);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    return g;
+  });
+  return new THREE.Mesh(mergeGeometries(geos, false), material);
+}
+function shadows(obj, cast = true, receive = true) {
+  obj.traverse((o) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = receive; } });
+  return obj;
+}
+
+/* ============================================================================
+   Global constants (world units ≈ decimetres; tank centred on the origin)
+   ========================================================================== */
+const TANK_W = 7, TANK_H = 4.5, TANK_D = 3.5, GLASS_T = 0.06;
+const HALF_X = TANK_W / 2, HALF_Z = TANK_D / 2;
+const BOTTOM_Y = -TANK_H / 2, TOP_Y = TANK_H / 2;
+const INNER_X = HALF_X - GLASS_T, INNER_Z = HALF_Z - GLASS_T;
+const FLOOR_Y = BOTTOM_Y + GLASS_T;
+const WATER_Y = 1.82;
+const ROOM_FLOOR_Y = -4.55;
+const PARAMS = new URLSearchParams(location.search);
+
+/** Shared, animated uniforms used by many patched materials. */
+const U = {
+  uTime: { value: 0 },
+  uCaustic: { value: 0.62 },
+  uNight: { value: 0 },
+  uPixelRatio: { value: 1 },
+};
+
+/** Collision proxies for fish steering: { c: Vector3, r: radius, tag }. */
+const OBSTACLES = [];
+/** Points of interest where fish like to linger: { p, look }. */
+const POIS = [];
+
+/* ============================================================================
+   Shared shader chunks — sway (plants, tentacles) and procedural caustics
+   ========================================================================== */
+const VERT_DECL = /* glsl */`
+uniform float uTime;
+#ifdef USE_SWAY
+  attribute float aPhase;
+  uniform float uSwayAmp; uniform float uSwaySpeed; uniform float uSwayWave; uniform float uSwayPow; uniform vec2 uSwayLean;
+#endif
+#ifdef USE_TENTACLE
+  attribute vec3 aTip; varying vec3 vTip; varying float vT;
+  uniform vec4 uPush; uniform float uDroop;
+#endif
+#ifdef USE_CAUSTICS
+  varying vec3 vCausticPos; varying vec3 vCausticN;
+#endif
+`;
+
+const PROJECT_VERTEX = /* glsl */`
+vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+  mvPosition = instanceMatrix * mvPosition;
+#endif
+#ifdef USE_SWAY
+{
+  // geometry is authored 0..1 along +Y, so position.y is the normalised height
+  float sT = clamp( position.y, 0.0, 1.0 );
+  float sW = pow( sT, uSwayPow );
+  #ifdef USE_INSTANCING
+    float sH = length( instanceMatrix[1].xyz );
+    vec2 sBase = instanceMatrix[3].xz;
+  #else
+    float sH = 1.0;
+    vec2 sBase = vec2( 1.0, 0.0 );
+  #endif
+  float tt = uTime * uSwaySpeed;
+  vec2 sw = vec2( sin( tt + aPhase + sT * uSwayWave ) + 0.35 * sin( tt * 2.3 + aPhase * 1.7 ),
+                  cos( tt * 0.73 + aPhase * 1.3 + sT * uSwayWave * 0.7 ) );
+  mvPosition.xz += ( sw * uSwayAmp + uSwayLean ) * sW * sH;
+  #ifdef USE_TENTACLE
+    vec2 outDir = normalize( sBase + vec2( 1e-4, 0.0 ) );
+    mvPosition.xz += outDir * uDroop * sT * sT * sH;
+    mvPosition.y -= uDroop * 0.6 * sT * sT * sH;
+    vec3 pd = mvPosition.xyz - uPush.xyz;
+    float pl = length( pd );
+    float pk = ( 1.0 - smoothstep( 0.0, 0.42, pl ) ) * uPush.w * sT;
+    mvPosition.xyz += ( pd / max( pl, 1e-3 ) ) * pk * 0.2;
+  #endif
+}
+#endif
+#ifdef USE_CAUSTICS
+  vCausticPos = ( modelMatrix * mvPosition ).xyz;
+  vCausticN = inverseTransformDirection( transformedNormal, viewMatrix );
+#endif
+mvPosition = modelViewMatrix * mvPosition;
+gl_Position = projectionMatrix * mvPosition;
+`;
+
+const FRAG_DECL = /* glsl */`
+#ifdef USE_CAUSTICS
+  uniform float uTime; uniform float uCaustic;
+  varying vec3 vCausticPos; varying vec3 vCausticN;
+  // Tileable domain-warped caustic pattern; two layers at different scales avoid visible repetition.
+  float aqCausticLayer( vec2 uv, float t ) {
+    vec2 p = mod( uv * 6.2831853, 6.2831853 ) - 250.0;
+    vec2 i = p;
+    float c = 1.0;
+    float inten = 0.005;
+    for ( int n = 0; n < 4; n ++ ) {
+      float tt = t * ( 1.0 - ( 3.5 / float( n + 1 ) ) );
+      i = p + vec2( cos( tt - i.x ) + sin( tt + i.y ), sin( tt - i.y ) + cos( tt + i.x ) );
+      c += 1.0 / length( vec2( p.x / ( sin( i.x + tt ) / inten ), p.y / ( cos( i.y + tt ) / inten ) ) );
+    }
+    c /= 4.0;
+    c = 1.17 - pow( c, 1.4 );
+    return pow( abs( c ), 8.0 );
+  }
+  vec3 aqCaustic( vec3 wp ) {
+    float inside = ( 1.0 - smoothstep( 3.3, 3.45, abs( wp.x ) ) ) * ( 1.0 - smoothstep( 1.55, 1.69, abs( wp.z ) ) ) * ( 1.0 - smoothstep( 1.7, 1.82, wp.y ) );
+    float lamp = 1.0 - smoothstep( 0.6, 4.0, length( wp.xz * vec2( 0.72, 1.25 ) ) );
+    float depthFade = 0.7 + 0.3 * smoothstep( -2.3, 1.8, wp.y );
+    float a = aqCausticLayer( wp.xz * 0.23 + vec2( 0.17, 0.63 ) + wp.y * 0.05, uTime * 0.21 + 23.0 );
+    float b = aqCausticLayer( wp.xz * 0.31 + vec2( 0.52, 0.08 ) - wp.y * 0.04, uTime * 0.16 + 61.0 );
+    return vec3( 0.62, 0.88, 1.0 ) * ( a * 0.62 + b * 0.48 ) * inside * ( 0.3 + 0.7 * lamp ) * depthFade;
+  }
+#endif
+`;
+
+const CAUSTIC_FRAGMENT = /* glsl */`
+#ifdef USE_CAUSTICS
+  outgoingLight += diffuseColor.rgb * aqCaustic( vCausticPos ) * smoothstep( -0.1, 0.8, normalize( vCausticN ).y ) * uCaustic;
+#endif
+`;
+
+/**
+ * Patches a built-in material with shared features. Each feature combination
+ * gets its own program cache key so programs are never shared incorrectly.
+ */
+function patchMaterial(material, { sway = null, swayUniforms = null, caustics = false } = {}) {
+  let su = swayUniforms;
+  if (!su && sway) {
+    su = {
+      uSwayAmp: { value: sway.amp ?? 0.06 }, uSwaySpeed: { value: sway.speed ?? 1 },
+      uSwayWave: { value: sway.wave ?? 1.6 }, uSwayPow: { value: sway.pow ?? 2 },
+      uSwayLean: { value: sway.lean ?? new THREE.Vector2(0.02, 0.0) },
+    };
+  }
+  material.userData.swayUniforms = su;
+  const defs = (su ? '#define USE_SWAY\n' : '') + (caustics ? '#define USE_CAUSTICS\n' : '');
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = U.uTime;
+    shader.uniforms.uCaustic = U.uCaustic;
+    if (su) Object.assign(shader.uniforms, su);
+    shader.vertexShader = defs + VERT_DECL + shader.vertexShader.replace('#include <project_vertex>', PROJECT_VERTEX);
+    shader.fragmentShader = defs + FRAG_DECL + shader.fragmentShader.replace('#include <opaque_fragment>', CAUSTIC_FRAGMENT + '\n#include <opaque_fragment>');
+  };
+  material.customProgramCacheKey = () => 'aq|' + defs;
+  return material;
+}
+/** Depth material for swaying shadow casters, sharing the colour material's sway uniforms. */
+function swayDepthMaterial(colorMaterial) {
+  return patchMaterial(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), { swayUniforms: colorMaterial.userData.swayUniforms });
+}
+
+/* ============================================================================
+   1. Renderer and scene initialisation
+   ========================================================================== */
+let renderer, scene, camera, controls, clock;
+let background, lights, tank, water, chest, anemone, duck, food, bubbles, ripples, particles, creatures;
+const fishes = [];
+
+function initRenderer() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  U.uPixelRatio.value = renderer.getPixelRatio();
+  document.getElementById('app').appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  clock = new THREE.Clock();
+  scene.environment = createEnvironmentMap();
+  background = createBackground();
+  scene.add(background.mesh);
+  createRoom();
+}
+
+/** Small procedural "studio" reflected by glass, water, metal and wet surfaces. */
+function createEnvironmentMap() {
+  const env = new THREE.Scene();
+  const box = (w, h, d, color, x, y, z, side = THREE.FrontSide) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color, side }));
+    m.position.set(x, y, z); env.add(m); return m;
+  };
+  box(30, 16, 30, new THREE.Color(0x0a1520), 0, 3, 0, THREE.BackSide);
+  box(7, 0.2, 1.0, new THREE.Color(5.5, 4.8, 3.9), 0, 6.5, 0);       // the aquarium lamp
+  box(0.2, 5, 9, new THREE.Color(0.18, 0.55, 0.9), -12, 2, 1);        // cool side light
+  box(6, 3, 0.2, new THREE.Color(1.0, 0.72, 0.45), 6, 3, 12);         // warm room glow
+  box(18, 0.2, 18, new THREE.Color(0.02, 0.035, 0.05), 0, -4.5, 0);   // dark floor
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const tex = pmrem.fromScene(env, 0.035).texture;
+  pmrem.dispose();
+  env.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+  return tex;
+}
+
+function createBackground() {
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, depthTest: false,
+    uniforms: {
+      uTop: { value: col('#08111f') }, uMid: { value: col('#102b42') }, uBot: { value: col('#02070d') },
+      uHaloDir: { value: new THREE.Vector3(0, 0, -1) }, uNight: U.uNight,
+    },
+    vertexShader: /* glsl */`
+      varying vec3 vDir;
+      void main() {
+        vec4 wp = modelMatrix * vec4( position, 1.0 );
+        vDir = wp.xyz - cameraPosition;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot; uniform vec3 uHaloDir; uniform float uNight;
+      varying vec3 vDir;
+      float hash( vec2 p ) { return fract( sin( dot( p, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ); }
+      void main() {
+        vec3 d = normalize( vDir );
+        vec3 c = d.y > 0.0 ? mix( uMid, uTop, smoothstep( 0.0, 0.55, d.y ) ) : mix( uMid, uBot, smoothstep( 0.0, 0.3, -d.y ) );
+        float h = max( dot( d, normalize( uHaloDir ) ), 0.0 );
+        c += vec3( 0.07, 0.16, 0.22 ) * pow( h, 14.0 ) + vec3( 0.02, 0.05, 0.07 ) * pow( h, 3.0 );   // soft halo behind the tank
+        c *= mix( 1.0, 0.5, uNight );
+        c += ( hash( gl_FragCoord.xy ) - 0.5 ) / 255.0;   // dither against banding
+        gl_FragColor = vec4( c, 1.0 );
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(90, 48, 24), mat);
+  mesh.renderOrder = -10;
+  mesh.frustumCulled = false;
+  return { mesh, mat };
+}
+
+/** Dark cabinet, fading studio floor and a faint light spill from the tank. */
+function createRoom() {
+  const cabTop = BOTTOM_Y - 0.08;
+  const cabH = cabTop - ROOM_FLOOR_Y;
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(7.5, cabH, 4.0), new THREE.MeshStandardMaterial({ color: 0x0e1115, roughness: 0.5, metalness: 0.25 }));
+  cab.position.y = cabTop - cabH / 2;
+  cab.receiveShadow = true;
+  scene.add(cab);
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(7.56, 0.05, 4.06), new THREE.MeshStandardMaterial({ color: 0x252b33, roughness: 0.3, metalness: 0.7 }));
+  trim.position.y = cabTop - 0.025;
+  scene.add(trim);
+  const kick = new THREE.Mesh(new THREE.BoxGeometry(7.3, 0.12, 3.8), new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.8 }));
+  kick.position.y = ROOM_FLOOR_Y + 0.06;
+  scene.add(kick);
+
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a1118, roughness: 0.55, metalness: 0.25, transparent: true, depthWrite: false });
+  floorMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'varying vec2 vFloorXY;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFloorXY = position.xy;');
+    shader.fragmentShader = 'varying vec2 vFloorXY;\n' + shader.fragmentShader.replace('#include <opaque_fragment>',
+      'diffuseColor.a *= 1.0 - smoothstep( 5.0, 17.0, length( vFloorXY ) );\n#include <opaque_fragment>');
+  };
+  floorMat.customProgramCacheKey = () => 'aq-floor';
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(20, 64), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = ROOM_FLOOR_Y;
+  floor.receiveShadow = true;
+  floor.renderOrder = -5;
+  scene.add(floor);
+
+  const spill = new THREE.Mesh(new THREE.PlaneGeometry(16, 12), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uNight: U.uNight },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `uniform float uNight; varying vec2 vUv;
+      void main(){ vec2 p = (vUv - 0.5) * vec2(1.6, 2.2); float d = length(p);
+        float a = (1.0 - smoothstep(0.15, 0.9, d)) * 0.07 * mix(1.0, 0.6, uNight);
+        gl_FragColor = vec4(vec3(0.25, 0.6, 0.75) * a, 1.0); }`,
+  }));
+  spill.rotation.x = -Math.PI / 2;
+  spill.position.set(0, ROOM_FLOOR_Y + 0.01, 1.8);
+  spill.renderOrder = -4;
+  scene.add(spill);
+}
+
+/* ============================================================================
+   2. Camera and controls
+   ========================================================================== */
+const CAM_HOME = new THREE.Vector3(9, 6, 10);
+const TARGET_HOME = new THREE.Vector3(-0.15, -0.5, 0);
+const camState = { lastInteraction: performance.now(), idle: 0, tween: null };
+
+function initCamera() {
+  camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 250);
+  camera.position.copy(CAM_HOME);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(TARGET_HOME);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.minDistance = 6;
+  controls.maxDistance = 18;
+  controls.maxPolarAngle = Math.PI * 0.78;
+  controls.minPolarAngle = 0.12;
+  controls.rotateSpeed = 0.6;
+  controls.zoomSpeed = 0.8;
+  controls.panSpeed = 0.6;
+  controls.autoRotate = false;
+  controls.update();
+  const touch = () => { camState.lastInteraction = performance.now(); camState.idle = 0; camState.tween = null; };
+  controls.addEventListener('start', touch);
+  renderer.domElement.addEventListener('wheel', touch, { passive: true });
+  renderer.domElement.addEventListener('pointerdown', touch);
+}
+
+function updateCamera(rawDt) {
+  const now = performance.now();
+  if (camState.tween) {
+    const tw = camState.tween;
+    tw.t = Math.min(1, tw.t + rawDt / tw.dur);
+    const k = easeInOut(tw.t);
+    camera.position.lerpVectors(tw.fromPos, tw.toPos, k);
+    controls.target.lerpVectors(tw.fromTarget, tw.toTarget, k);
+    if (tw.t >= 1) camState.tween = null;
+  }
+  // Subtle idle drift after a few quiet seconds; any interaction stops it at once.
+  const idleFor = (now - camState.lastInteraction) / 1000;
+  camState.idle = idleFor > 7 && !camState.tween ? damp(camState.idle, 1, 0.35, rawDt) : 0;
+  controls.autoRotate = camState.idle > 0.001;
+  controls.autoRotateSpeed = 0.32 * camState.idle * (Math.sin(now * 0.00004) >= 0 ? 1 : -1);
+
+  // Keep the camera above the studio floor and the target near the tank.
+  const dist = camera.position.distanceTo(controls.target);
+  const floorLimit = Math.acos(clamp(-(controls.target.y - ROOM_FLOOR_Y - 0.6) / dist, -1, 1));
+  controls.maxPolarAngle = Math.min(Math.PI * 0.78, floorLimit);
+  controls.update(rawDt);
+  const t = controls.target;
+  const cx = clamp(t.x, -3.0, 3.0), cy = clamp(t.y, -2.0, 1.6), cz = clamp(t.z, -2.0, 2.0);
+  if (cx !== t.x || cy !== t.y || cz !== t.z) {
+    camera.position.x += cx - t.x; camera.position.y += cy - t.y; camera.position.z += cz - t.z;
+    t.set(cx, cy, cz);
+  }
+  background.mesh.position.copy(camera.position);
+  background.mat.uniforms.uHaloDir.value.copy(TARGET_HOME).sub(camera.position).normalize();
+}
+
+function resetCamera() {
+  camState.tween = { t: 0, dur: 1.6, fromPos: camera.position.clone(), toPos: CAM_HOME.clone(), fromTarget: controls.target.clone(), toTarget: TARGET_HOME.clone() };
+  camState.lastInteraction = performance.now();
+  camState.idle = 0;
+}
+
+/* ============================================================================
+   3. Lighting
+   ========================================================================== */
+function createLights() {
+  const L = {};
+  L.ambient = new THREE.AmbientLight(0xb3e5fc, 0.35);
+  L.hemi = new THREE.HemisphereLight(0xbfe3ff, 0x1c2a28, 0.5);
+
+  L.key = new THREE.DirectionalLight(0xffecd2, 1.3);
+  L.key.position.set(5.5, 11, 7.5);
+  L.key.target.position.set(0, -1.2, 0);
+  L.key.castShadow = true;
+  L.key.shadow.mapSize.set(2048, 2048);
+  Object.assign(L.key.shadow.camera, { left: -5.5, right: 5.5, top: 5, bottom: -5, near: 2, far: 30 });
+  L.key.shadow.bias = -0.0004;
+  L.key.shadow.normalBias = 0.02;
+
+  // Lights living under the lamp housing: warm main spot (soft shadows) and a cool fill.
+  L.lampWarm = new THREE.SpotLight(0xffe2b8, 58, 0, 1.05, 0.85, 2);
+  L.lampWarm.position.set(0, 2.86, 0.05);
+  L.lampWarm.target.position.set(0, -2.2, 0);
+  L.lampWarm.castShadow = true;
+  L.lampWarm.shadow.mapSize.set(1024, 1024);
+  L.lampWarm.shadow.camera.near = 0.3;
+  L.lampWarm.shadow.camera.far = 7;
+  L.lampWarm.shadow.bias = -0.0006;
+  L.lampWarm.shadow.normalBias = 0.02;
+  L.lampCool = new THREE.SpotLight(0x8fc8ff, 20, 0, 1.25, 1.0, 2);
+  L.lampCool.position.set(0, 2.84, -0.22);
+  L.lampCool.target.position.set(0, -2.2, -0.3);
+
+  L.cyan = new THREE.PointLight(0x46d2ff, 9, 14, 2);
+  L.cyan.position.set(-6.5, 0.4, 2.0);
+  L.violet = new THREE.PointLight(0x8e63ff, 1.8, 3.6, 2);
+  L.violet.position.set(-2.6, -0.55, -1.6);
+
+  for (const l of [L.ambient, L.hemi, L.key, L.key.target, L.lampWarm, L.lampWarm.target, L.lampCool, L.lampCool.target, L.cyan, L.violet]) scene.add(l);
+  return L;
+}
+
+/* ============================================================================
+   4. Aquarium glass, frame and lamp
+   ========================================================================== */
+function createTank() {
+  const group = new THREE.Group();
+  group.name = 'tank';
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xdffaff, transmission: 0.95, transparent: true, opacity: 0.16, roughness: 0.04, metalness: 0,
+    thickness: 0.18, ior: 1.45, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.3,
+    clearcoat: 0.5, clearcoatRoughness: 0.06,
+  });
+  const panels = [];
+  const panel = (name, w, h, d, x, y, z, normal) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glassMat);
+    m.position.set(x, y, z);
+    m.name = name;
+    m.userData.normal = normal;
+    group.add(m);
+    panels.push(m);
+    return m;
+  };
+  panel('front', TANK_W, TANK_H, GLASS_T, 0, 0, HALF_Z - GLASS_T / 2, V3(0, 0, 1));
+  panel('back', TANK_W, TANK_H, GLASS_T, 0, 0, -HALF_Z + GLASS_T / 2, V3(0, 0, -1));
+  panel('left', GLASS_T, TANK_H, TANK_D - 2 * GLASS_T, -HALF_X + GLASS_T / 2, 0, 0, V3(-1, 0, 0));
+  panel('right', GLASS_T, TANK_H, TANK_D - 2 * GLASS_T, HALF_X - GLASS_T / 2, 0, 0, V3(1, 0, 0));
+  const bottom = panel('bottom', TANK_W - 2 * GLASS_T, GLASS_T, TANK_D - 2 * GLASS_T, 0, BOTTOM_Y + GLASS_T / 2, 0, V3(0, -1, 0));
+
+  // Bevel-like glass edges: thin cyan-green rods on the vertical corners so the silhouette reads clearly.
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x9fdcd2, emissive: 0x0d2a2a, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.55, depthWrite: false });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(0.075, TANK_H - 0.2, 0.075), edgeMat);
+    e.position.set(sx * (HALF_X - 0.03), 0, sz * (HALF_Z - 0.03));
+    group.add(e);
+  }
+  // Dark matte frame along the top and bottom perimeter.
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.62, metalness: 0.2 });
+  const frame = (y, h) => {
+    const parts = [
+      [TANK_W + 0.1, h, 0.12, 0, y, HALF_Z - 0.03], [TANK_W + 0.1, h, 0.12, 0, y, -HALF_Z + 0.03],
+      [0.12, h, TANK_D + 0.1, -HALF_X + 0.03, y, 0], [0.12, h, TANK_D + 0.1, HALF_X - 0.03, y, 0],
+    ];
+    for (const [w, hh, d, x, yy, z] of parts) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), frameMat);
+      m.position.set(x, yy, z);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
+  };
+  frame(TOP_Y - 0.05, 0.14);
+  frame(BOTTOM_Y + 0.0, 0.17);
+
+  // Slim overhead lamp: housing, diffuser strips, brackets resting on the rim, and a power cord.
+  const lamp = new THREE.Group();
+  const housingMat = new THREE.MeshStandardMaterial({ color: 0x121417, roughness: 0.42, metalness: 0.6 });
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.11, 0.62), housingMat);
+  housing.position.y = 2.98;
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.05, 0.46), housingMat);
+  cap.position.y = 3.055;
+  lamp.add(housing, cap);
+  const warmStripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.7, 1.48, 1.15) });
+  const coolStripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.35, 0.68, 1.4) });
+  const warmStrip = new THREE.Mesh(new THREE.PlaneGeometry(5.9, 0.26), warmStripMat);
+  warmStrip.rotation.x = Math.PI / 2;
+  warmStrip.position.set(0, 2.922, 0.06);
+  const coolStrip = new THREE.Mesh(new THREE.PlaneGeometry(5.9, 0.05), coolStripMat);
+  coolStrip.rotation.x = Math.PI / 2;
+  coolStrip.position.set(0, 2.921, -0.17);
+  lamp.add(warmStrip, coolStrip);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.04, 0.06), housingMat);
+    arm.position.set(sx * 3.27, 2.98, sz * 0.2);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.68, 0.06), housingMat);
+    foot.position.set(sx * 3.46, 2.64, sz * 0.2);
+    lamp.add(arm, foot);
+  }
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), new THREE.MeshBasicMaterial({ color: 0x55ff9a }));
+  led.position.set(2.9, 2.98, 0.312);
+  lamp.add(led);
+  const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+    V3(2.95, 3.03, -0.25), V3(3.2, 3.18, -0.7), V3(3.45, 2.7, -1.9), V3(3.6, 0.6, -2.05), V3(3.55, -1.6, -2.05), V3(3.45, -2.32, -1.95),
+  ]), 48, 0.018, 6), new THREE.MeshStandardMaterial({ color: 0x08090a, roughness: 0.5 }));
+  lamp.add(cord);
+  group.add(lamp);
+  scene.add(group);
+  return { group, panels, bottom, glassMat, edgeMat, warmStripMat, coolStripMat, frontPanel: panels[0] };
+}
+
+/* ============================================================================
+   5. Water volume, animated surface and waterline
+   ========================================================================== */
+function createWater() {
+  const w = INNER_X * 2 - 0.01, d = INNER_Z * 2 - 0.01;
+  const h = WATER_Y - FLOOR_Y;
+  const volMat = new THREE.MeshStandardMaterial({ color: 0x3aa6c4, emissive: 0x06303f, transparent: true, opacity: 0.12, roughness: 0.15, metalness: 0, depthWrite: false });
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  // BoxGeometry groups: +x, -x, +y, -y, +z, -z. The top is replaced by the animated surface.
+  const volume = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [volMat, volMat, hidden, volMat, volMat, volMat]);
+  volume.position.y = FLOOR_Y + h / 2;
+  volume.name = 'waterVolume';
+  volume.renderOrder = 1;
+  scene.add(volume);
+
+  const SX = 120, SZ = 60;
+  const geo = new THREE.PlaneGeometry(w, d, SX, SZ);
+  geo.rotateX(-Math.PI / 2);
+  const base = geo.attributes.position.array.slice();
+  const surfMat = new THREE.MeshPhysicalMaterial({
+    color: 0x7fd8f0, transparent: true, opacity: 0.34, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
+    side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.7, ior: 1.33, specularIntensity: 1,
+  });
+  const surface = new THREE.Mesh(geo, surfMat);
+  surface.position.y = WATER_Y;
+  surface.name = 'waterSurface';
+  surface.renderOrder = 3;
+  scene.add(surface);
+
+  // Faint bright meniscus line where water meets the glass.
+  const wlMat = new THREE.MeshBasicMaterial({ color: 0xc8f6ff, transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const wlSoft = new THREE.MeshBasicMaterial({ color: 0x5fc6e0, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const waterline = new THREE.Group();
+  for (const [len, x, z, ry] of [[w, 0, INNER_Z - 0.004, 0], [w, 0, -INNER_Z + 0.004, 0], [d, -INNER_X + 0.004, 0, Math.PI / 2], [d, INNER_X - 0.004, 0, Math.PI / 2]]) {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.022), wlMat);
+    line.position.set(x, 0, z); line.rotation.y = ry;
+    const soft = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.14), wlSoft);
+    soft.position.set(x, -0.06, z); soft.rotation.y = ry;
+    waterline.add(line, soft);
+  }
+  waterline.position.y = WATER_Y;
+  waterline.renderOrder = 4;
+  scene.add(waterline);
+
+  const ripplesList = [];   // { x, z, t0, amp }
+  let agitation = 0;
+  function height(x, z, t) {
+    let y = 0.016 * Math.sin(x * 1.7 + t * 0.9) + 0.011 * Math.sin(z * 2.3 - t * 1.3 + x * 0.4)
+      + 0.006 * Math.sin((x + z) * 4.1 + t * 2.1) + 0.0035 * Math.sin((x * 0.7 - z) * 6.3 - t * 2.7);
+    y *= 1 + agitation * 1.5;
+    for (const r of ripplesList) {
+      const age = t - r.t0;
+      const dx = x - r.x, dz = z - r.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const front = age * 1.25;
+      const env = Math.exp(-age * 0.85) * Math.exp(-((dist - front) ** 2) / 0.09);
+      y += r.amp * env * Math.sin(dist * 15 - age * 11);
+    }
+    return y;
+  }
+  function update(t, dt) {
+    agitation = damp(agitation, 0, 0.6, dt);
+    for (let i = ripplesList.length - 1; i >= 0; i--) if (t - ripplesList[i].t0 > 5) ripplesList.splice(i, 1);
+    const p = geo.attributes.position.array;
+    for (let i = 0; i < p.length; i += 3) p[i + 1] = height(base[i], base[i + 2], t);
+    geo.attributes.position.needsUpdate = true;
+    geo.computeVertexNormals();
+    waterline.position.y = WATER_Y + height(0, INNER_Z, t) * 0.6;
+  }
+  function addRipple(x, z, amp = 0.03) {
+    ripplesList.push({ x, z, t0: U.uTime.value, amp });
+    if (ripplesList.length > 8) ripplesList.shift();
+    agitation = Math.min(1, agitation + 0.5);
+  }
+  update(0, 0);
+  geo.computeBoundingSphere();
+  return { volume, volMat, surface, surfMat, waterline, update, addRipple, height };
+}
