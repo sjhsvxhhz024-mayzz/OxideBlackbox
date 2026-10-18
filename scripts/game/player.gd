@@ -30,6 +30,9 @@ var _pitch := 0.0
 var _swinging := false
 var _bob := 0.0
 var _sway := Vector2.ZERO
+var _land := 0.0
+var _fall_speed := 0.0
+var _was_on_floor := true
 var _hold_base: Transform3D
 var _view_anim: AnimationPlayer
 var _body_anim: AnimationPlayer
@@ -44,7 +47,6 @@ var _target: ResourceNode
 func _ready() -> void:
 	_hold_base = _hold.transform
 	ModelUtil.use_vertex_colors($Head/Camera3D/Hold/Swing/Viewmodel, 0.75)
-	ModelUtil.use_vertex_colors($Body, 0.85)
 	for meshi in $Head/Camera3D/Hold.find_children("*", "MeshInstance3D", true, false):
 		meshi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_view_anim = $Head/Camera3D/Hold/Swing/Viewmodel.find_child("AnimationPlayer", true, false)
@@ -99,7 +101,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		rotate_y(-event.relative.x * sens)
 		_pitch = clampf(_pitch - dy * sens, deg_to_rad(-88.0), deg_to_rad(88.0))
 		_head.rotation.x = _pitch
-		_sway += Vector2(event.relative.x, event.relative.y) * 0.0004
+		_sway += Vector2(event.relative.x, event.relative.y) * 0.0011
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			select_slot((selected + 1) % Inventory.HOTBAR)
@@ -150,16 +152,29 @@ func _update_body_anim() -> void:
 
 
 func _process(delta: float) -> void:
-	var moving := Vector2(velocity.x, velocity.z).length()
-	_bob += delta * (1.6 + moving * 1.4)
-	_sway = _sway.lerp(Vector2.ZERO, 1.0 - exp(-delta * 8.0))
-	if _hold.visible and not _swinging:
-		var breathe := Vector3(sin(_bob * 0.5) * 0.004, sin(_bob) * (0.003 + moving * 0.0035), 0)
-		var offset := Vector3(-_sway.x, _sway.y, 0).limit_length(0.04)
-		_hold.position = _hold.position.lerp(_hold_base.origin + breathe + offset, 1.0 - exp(-delta * 14.0))
-		_hold.rotation.z = lerpf(_hold.rotation.z, -_sway.x * 2.0, 1.0 - exp(-delta * 10.0))
+	var planar := Vector2(velocity.x, velocity.z)
+	var moving := planar.length()
+	var move_t := clampf(moving / WALK, 0.0, 1.6)
+	_bob += delta * (2.0 + moving * 2.1)
+	_sway = _sway.lerp(Vector2.ZERO, 1.0 - exp(-delta * 6.0))
+	_land = lerpf(_land, 0.0, 1.0 - exp(-delta * 7.0))
+	if is_on_floor() and not _was_on_floor:
+		_land = clampf(-_fall_speed / 12.0, 0.0, 1.0)
+	_fall_speed = velocity.y
+	_was_on_floor = is_on_floor()
+	if _hold.visible:
+		# figure-8 walk bob, mouse-look lag, strafe/sprint tilt and a landing dip; all on top of the Idle clip
+		var bob := Vector3(sin(_bob) * 0.022, -absf(cos(_bob)) * 0.018 + sin(_bob * 2.0) * 0.004, 0.0) * move_t
+		var lag := Vector3(-_sway.x, _sway.y, 0.0).limit_length(0.11)
+		var local_vel := transform.basis.inverse() * velocity
+		var target := _hold_base.origin + bob + lag + Vector3(0, -0.06 * _land, 0.02 * _land)
+		_hold.position = _hold.position.lerp(target, 1.0 - exp(-delta * 9.0))
+		var rot := Vector3(_sway.y * 1.5 + sin(_bob) * 0.012 * move_t - 0.25 * _land,
+				-_sway.x * 1.2, -_sway.x * 2.4 - local_vel.x * 0.015 + sin(_bob) * 0.03 * move_t)
+		_hold.rotation = _hold.rotation.lerp(rot, 1.0 - exp(-delta * 9.0))
 	if not third_person and is_on_floor():
-		_camera.position.y = sin(_bob * 2.0) * 0.025 * clampf(moving / WALK, 0, 1)
+		_camera.position.y = sin(_bob * 2.0) * 0.012 * move_t - 0.05 * _land
+		_camera.rotation.z = lerpf(_camera.rotation.z, sin(_bob) * 0.006 * move_t, 1.0 - exp(-delta * 8.0))
 
 
 func _try_swing() -> void:

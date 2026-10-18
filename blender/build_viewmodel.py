@@ -75,7 +75,9 @@ class Wrap:
         else:
             t = (self.x * p.x + self.f * y) / (theta * self.R)
             d = self.o * math.cos(theta) + t * math.sin(theta)
-        world = ROCK_C + d * (self.R - p.z)
+        # radius follows the real rock surface so palm and fingers sit on it instead of inside it
+        r_surface = rock_radius(d) + GAP
+        world = ROCK_C + d * (r_surface - p.z)
         if p.y < 0:
             world += self.wrist_dir * (-p.y)
         return world
@@ -111,6 +113,27 @@ def build_hand(side, wrap):
         for j in range(3):
             bones.append((f"{name}{j + 1}{tag}", wrap(pts[j]), wrap(pts[j + 1]), f"hand{tag}" if j == 0 else f"{name}{j}{tag}"))
     return obj, bones
+
+
+# the actual AI rock surface (not a sphere): hands are pushed outside it after wrapping
+bpy.ops.import_scene.gltf(filepath=os.path.join(tz.MODELS_DIR, "game", "rock_ai.glb"))
+rock = next(o for o in bpy.context.selected_objects if o.type == "MESH")
+rock.name = "ViewRock"
+rock.scale = rock.scale * (ROCK_R * 2.05 / max(rock.dimensions))
+rock.location = ROCK_C
+rock.rotation_euler = (0.5, 0.3, 1.2)
+bpy.context.view_layer.update()
+from mathutils.bvhtree import BVHTree  # noqa: E402
+rock_bvh = BVHTree.FromPolygons([rock.matrix_world @ v.co for v in rock.data.vertices],
+                                [tuple(p.vertices) for p in rock.data.polygons])
+
+
+def rock_radius(direction):
+    """Distance from the rock centre to its surface along `direction` (world space)."""
+    hit = rock_bvh.ray_cast(ROCK_C + direction * 0.6, -direction, 0.6)
+    if hit[0] is None:
+        raise RuntimeError("rock raycast missed")
+    return (hit[0] - ROCK_C).length
 
 
 # right hand grips the lower-right-front of the rock, left hand the lower-left-front; fingers curl up the front face
@@ -153,13 +176,6 @@ for v in hands.data.vertices:
 hands.parent = rig
 hands.modifiers.new("Armature", "ARMATURE").object = rig
 
-bpy.ops.import_scene.gltf(filepath=os.path.join(tz.MODELS_DIR, "game", "rock_ai.glb"))
-rock = next(o for o in bpy.context.selected_objects if o.type == "MESH")
-rock.name = "ViewRock"
-rock.scale = rock.scale * (ROCK_R * 2.05 / max(rock.dimensions))
-rock.location = ROCK_C
-rock.rotation_euler = (0.5, 0.3, 1.2)
-bpy.context.view_layer.update()
 mw = rock.matrix_world.copy()
 rock.parent = rig
 rock.parent_type = "BONE"
@@ -195,12 +211,14 @@ def new_action(name):
 
 actions = []
 actions.append(new_action("Idle"))  # 2 s breathing: rock and hands bob and roll slightly
-for f in range(0, 61, 5):
-    a = 2 * math.pi * f / 60
-    key(f, "root", [(X3, 1.0 * math.sin(a)), (Y3, 0.8 * math.sin(a + 1.0))], (0.0, 0.0, 0.004 * math.sin(a)))
-    for tag in (".R", ".L"):
-        for name in ("index", "middle", "ring", "pinky"):
-            key(f, f"{name}1{tag}", [(X3, 1.5 * math.sin(a + 0.5))])
+for f in range(0, 91, 3):
+    a = 2 * math.pi * f / 90
+    key(f, "root", [(X3, 2.2 * math.sin(a)), (Y3, 2.0 * math.sin(a * 2 + 1.0)), (Z3, 1.2 * math.sin(a + 2.0))],
+        (0.006 * math.sin(a * 2 + 0.7), 0.004 * math.sin(a), 0.012 * math.sin(a)))
+    for tag, ph in ((".R", 0.0), (".L", 1.1)):
+        key(f, f"arm{tag}", [(X3, 1.0 * math.sin(a + ph))])
+        for i, name in enumerate(("index", "middle", "ring", "pinky")):
+            key(f, f"{name}1{tag}", [(X3, -2.0 * max(0.0, math.sin(a * 2 + ph + i * 0.5)))])
 actions.append(new_action("Draw"))  # rises from below the screen
 for f, rx, loc in ((0, -30, (0.0, -0.08, -0.3)), (6, -10, (0.0, -0.03, -0.09)), (11, 2, (0, 0, 0.006)), (15, 0, (0, 0, 0))):
     key(f, "root", [(X3, rx)], loc)

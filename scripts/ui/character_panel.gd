@@ -3,7 +3,7 @@ extends Control
 
 signal closed
 
-const BODY := preload("res://assets/models/game/player_ai.glb")
+const BODY := preload("res://assets/models/game/player_soldier.glb")
 
 var _pivot := Node3D.new()
 var _dragging := false
@@ -49,8 +49,10 @@ func _ready() -> void:
 	camera.look_at_from_position(Vector3(0, 1.1, 4.2), Vector3(0, 0.92, 0))
 	viewport.add_child(_pivot)
 	var body := BODY.instantiate()
-	ModelUtil.use_vertex_colors(body, 0.85)
 	_pivot.add_child(body)
+	var anim: AnimationPlayer = body.find_child("AnimationPlayer", true, false)
+	anim.get_animation("Idle").loop_mode = Animation.LOOP_LINEAR
+	anim.play("Idle")
 	var stand := MeshInstance3D.new()
 	var disc := CylinderMesh.new()
 	disc.top_radius = 0.6
@@ -63,7 +65,7 @@ func _ready() -> void:
 	stand.position.y = -0.03
 	viewport.add_child(stand)
 	container.gui_input.connect(_on_view_input)
-	box.add_child(UiKit.label("Модель сгенерирована ИИ (Hunyuan3D-2) по концепт-арту. Потяните мышью, чтобы повернуть.", 20, UiKit.MUTED))
+	box.add_child(UiKit.label("Персонаж Mixamo «Vanguard» с motion-capture анимациями. Потяните мышью, чтобы повернуть.", 20, UiKit.MUTED))
 	var back := UiKit.button("Назад")
 	back.pressed.connect(close)
 	box.add_child(back)
