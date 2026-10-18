@@ -1,0 +1,1171 @@
+# Prompt: Cinematic Interactive 3D Aquarium Diorama with Clownfish
+
+## Objective
+
+Create a polished, visually rich, interactive 3D aquarium as a **single self-contained HTML file**.
+
+The aquarium must feel like a miniature living underwater world rather than an empty glass box. It should contain three recognizable clownfish, dense environmental decoration, animated plants, coral, rocks, bubbles, small creatures, hidden details, atmospheric particles, and subtle user interactions.
+
+Use **Three.js imported from a CDN** for all 3D rendering.
+
+Everything must be generated procedurally with Three.js geometry, materials, shaders, curves, particles, and JavaScript. Do not use external image textures, 3D models, audio files, or other assets.
+
+The finished result should look impressive enough to use as a portfolio demo, screensaver, or shareable interactive artwork.
+
+\---
+
+# Core Technical Requirements
+
+* Produce exactly one working `.html` file.
+* Put all CSS and JavaScript inside that file.
+* Use `<script type="module">`.
+* Import Three.js and OrbitControls through compatible CDN ES-module URLs.
+* No external textures.
+* No external models.
+* No external shaders.
+* No build tools.
+* No console errors.
+* No broken imports.
+* The page must run by opening the HTML file in a modern browser or through a simple local server.
+* Fill the entire browser viewport.
+* Handle window resizing.
+* Target smooth animation near 60 FPS on a modern desktop.
+* Use procedural low-to-medium-poly geometry with smooth shading and high-quality materials.
+
+Recommended imports:
+
+```js
+import \* as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+```
+
+\---
+
+# Art Direction
+
+Create a cozy, cinematic, slightly magical aquarium displayed in a dark room.
+
+The visual style should combine:
+
+* Realistic glass and water.
+* Stylized but recognizable fish.
+* A detailed miniature underwater diorama.
+* Warm aquarium lighting.
+* Soft blue caustics.
+* Gentle ambient motion.
+* Small humorous and mysterious details.
+* A calm, premium screensaver-like atmosphere.
+
+Avoid making the scene look like a basic Three.js tutorial.
+
+The aquarium should immediately have a strong visual focal point and multiple smaller discoveries visible when the camera is rotated.
+
+\---
+
+# Scene Layout
+
+## Aquarium Dimensions
+
+Use a rectangular tank approximately:
+
+* Width: `7`
+* Height: `4.5`
+* Depth: `3.5`
+
+Place the center of the aquarium near the world origin.
+
+Leave enough room around the aquarium for orbiting the camera.
+
+The aquarium top should be open, but it may contain a realistic dark frame and a compact overhead lamp.
+
+\---
+
+# Background and Room Atmosphere
+
+Create a full-screen background behind the aquarium using either:
+
+* A procedural vertical gradient.
+* A large inverted sphere with a shader material.
+* A dark curved studio backdrop.
+
+Suggested colors:
+
+* Top: `#08111f`
+* Middle: `#102b42`
+* Bottom: `#02070d`
+
+Add a very subtle vignette using CSS or a shader.
+
+Optionally create a dim floor plane beneath the aquarium so the tank appears to sit on a dark cabinet or studio pedestal.
+
+The floor should catch faint shadows and reflections without becoming distracting.
+
+Add a soft halo behind the aquarium to separate its silhouette from the background.
+
+\---
+
+# Aquarium Construction
+
+## Glass Panels
+
+Build the aquarium from five individual glass panels:
+
+* Front wall.
+* Back wall.
+* Left wall.
+* Right wall.
+* Bottom panel.
+
+Do not place glass over the open top.
+
+Use `MeshPhysicalMaterial` with values near:
+
+```js
+{
+  color: 0xdffaff,
+  transmission: 0.95,
+  transparent: true,
+  opacity: 0.16,
+  roughness: 0.04,
+  metalness: 0,
+  thickness: 0.18,
+  ior: 1.45,
+  side: THREE.DoubleSide
+}
+```
+
+The glass should have:
+
+* Visible highlights along its edges.
+* Slight cyan-green tint.
+* Reflections from the aquarium lamp.
+* Enough transparency that all decorations remain readable.
+* Correct render ordering or material depth settings to minimize transparency artifacts.
+
+Add thin bevel-like edge strips or narrow metallic/glass rods at the corners so the tank silhouette is clearly visible.
+
+## Frame and Lamp
+
+Add a dark matte frame around:
+
+* The top perimeter.
+* The bottom perimeter.
+* Optionally the four vertical corners.
+
+Use a nearly black material with slight roughness.
+
+Above the water, create a slim aquarium lamp:
+
+* Black rectangular housing.
+* Thin glowing strip underneath.
+* Warm white central light.
+* Faint cool-blue secondary light.
+
+The lamp should look like a real physical fixture, not just a floating point light.
+
+\---
+
+# Water
+
+Create a transparent water volume slightly smaller than the inner tank dimensions.
+
+Suggested material:
+
+* Blue-cyan tint.
+* Opacity around `0.10–0.18`.
+* High transparency.
+* Low roughness.
+* Optional slight transmission.
+
+Do not make the water so opaque that the scenery becomes difficult to see.
+
+## Animated Water Surface
+
+Create a separate top water surface using a subdivided `PlaneGeometry`.
+
+Animate its vertices or use a custom shader with multiple overlapping sine waves:
+
+```text
+wave =
+    sin(x \* frequencyA + time \* speedA) \* amplitudeA
+  + sin(z \* frequencyB + time \* speedB) \* amplitudeB
+```
+
+The water surface should:
+
+* Ripple gently.
+* Distort reflected light.
+* Remain subtle.
+* Move more strongly when the user drops food into the water.
+* Have specular highlights from the lamp.
+
+Add a faint bright waterline around the inside of the aquarium.
+
+\---
+
+# Ground and Substrate
+
+The aquarium floor must not be flat or empty.
+
+## Layered Substrate
+
+Create a layered substrate with:
+
+1. A dark soil base.
+2. A visible band of small pebbles.
+3. A top layer of pale sand.
+
+Use hundreds of lightweight procedural gravel particles, instanced meshes, or merged geometry where possible.
+
+Suggested colors:
+
+* Dark soil: `#33251e`
+* Warm sand: `#c9ad7c`
+* Beige gravel: `#a68b68`
+* Gray gravel: `#77736c`
+* Dark stones: `#47423c`
+
+Give the terrain a slightly uneven profile:
+
+* A low mound in one back corner.
+* A shallow valley through the center.
+* Sand accumulated around rocks and ruins.
+* Small open swimming areas near the front.
+
+Create a few subtle ripple patterns in the sand using curved ridges or thin torus segments.
+
+\---
+
+# Main Environmental Focal Point
+
+The aquarium should contain a strong central composition rather than randomly scattered objects.
+
+## Giant Sea Anemone
+
+Create a large sea anemone near the center-left or center-right.
+
+The anemone should be the main home of the clownfish.
+
+Build it procedurally from:
+
+* A rounded organic base.
+* Approximately 30–60 tentacles.
+* Tentacles made with tapered cylinders, curves with `TubeGeometry`, or chains of small segments.
+* Slight variation in length, thickness, color, bend, and animation phase.
+
+Suggested colors:
+
+* Base: muted violet, burgundy, or deep coral.
+* Tentacle tips: pink, orange, cream, or fluorescent green.
+* Slight emissive tint at the tips.
+
+Animate every tentacle independently with slow underwater swaying.
+
+At least one clownfish should occasionally circle, inspect, or briefly hide within the anemone.
+
+The fish must not permanently disappear inside it.
+
+\---
+
+# Large Decorative Props
+
+Include at least four major decorative props.
+
+## 1\. Twisted Driftwood Arch
+
+Create a procedural driftwood structure using several branching curved tubes.
+
+It should:
+
+* Form an arch or tunnel.
+* Have uneven branches.
+* Use dark brown rough material.
+* Be partially buried in the sand.
+* Have small plants or moss attached.
+* Provide a path that fish can occasionally swim through.
+
+Do not use a single plain cylinder.
+
+## 2\. Miniature Sunken Temple Ruins
+
+Create a small ancient ruin in one back corner.
+
+Possible elements:
+
+* Two broken columns.
+* A cracked stone arch.
+* A tilted slab.
+* Small staircase.
+* Fragment of a statue head.
+* Moss growing over some surfaces.
+
+Use procedural box, cylinder, torus, and custom broken-shape geometry.
+
+Suggested stone colors:
+
+* `#6e7772`
+* `#818b82`
+* `#59645d`
+
+Add edge wear through layered geometry or color variation.
+
+The ruin should look weathered and partially buried, not like clean primitives.
+
+## 3\. Treasure Chest with Bubble Surprise
+
+Place a small half-buried treasure chest near the driftwood or ruins.
+
+Construct it from:
+
+* A dark wooden box.
+* Curved lid.
+* Metal bands.
+* Small lock.
+* A few visible gold coins or glowing pearls.
+
+Animate the lid so that it opens slightly every 12–20 seconds, releases a burst of bubbles, then closes again.
+
+The motion should be subtle and charming, not cartoonishly fast.
+
+Add a faint warm golden glow from inside while the lid is open.
+
+## 4\. Sunken Glass Bottle
+
+Add a tilted transparent bottle partially buried in the sand.
+
+Inside the bottle, place either:
+
+* A tiny rolled message.
+* A miniature glowing object.
+* A tiny procedural ship silhouette.
+
+The bottle should create a hidden discovery when the camera is rotated.
+
+Use simple glass geometry and avoid severe transparency artifacts.
+
+\---
+
+# Additional Decorative Details
+
+Scatter smaller details around the environment to make it feel handcrafted.
+
+Include several of the following:
+
+* Small coral branches.
+* Mushroom-shaped coral.
+* Shells.
+* Starfish on the sand or glass.
+* A tiny ceramic diver helmet.
+* A broken anchor.
+* A small skull-shaped rock, stylized rather than frightening.
+* A miniature “No Fishing” sign.
+* One rubber duck ornament partially hidden behind plants.
+* Tiny glowing pearls near the treasure chest.
+* Moss patches on the ruins.
+* Thin roots growing around rocks.
+* A small cave under the driftwood.
+* A crab burrow entrance.
+* Pebbles stacked into a tiny balancing tower.
+
+Do not arrange everything evenly. Use intentional clusters and leave some negative space.
+
+At least one humorous detail should be partially hidden and only noticeable from certain camera angles.
+
+\---
+
+# Rocks and Gravel
+
+Add:
+
+* 20–35 medium decorative stones.
+* Numerous small gravel pieces.
+* 3–5 larger feature rocks.
+
+Use a mixture of:
+
+* `DodecahedronGeometry`
+* `IcosahedronGeometry`
+* Distorted `SphereGeometry`
+* Custom vertex noise
+
+Randomize:
+
+* Scale.
+* Rotation.
+* Flattening.
+* Roughness.
+* Color.
+* Partial burial depth.
+
+Avoid perfect spheres.
+
+Create one larger rock cave or overhang where fish can swim nearby.
+
+\---
+
+# Aquatic Plants
+
+Create 6–9 plant clusters with visual variety.
+
+Do not make every plant from identical vertical green planes.
+
+## Plant Type A: Tall Ribbon Grass
+
+* Long narrow blades.
+* Back corners and rear wall.
+* Dark green base.
+* Brighter translucent tips.
+* Gentle independent swaying.
+
+## Plant Type B: Broad-Leaved Plant
+
+* Larger oval or lance-shaped leaves.
+* Short stems.
+* Positioned near rocks or driftwood.
+* Slower movement.
+
+## Plant Type C: Red Accent Plant
+
+* Burgundy, orange-red, or deep purple leaves.
+* Use only in one or two clusters as a visual accent.
+
+## Plant Type D: Moss
+
+* Small clumps attached to wood and ruins.
+* Constructed from clusters of small soft shapes.
+
+Every plant should have a randomized animation phase so the scene does not sway uniformly.
+
+The animation should appear strongest near leaf tips and minimal near roots.
+
+\---
+
+# Coral
+
+Add several stylized procedural coral formations:
+
+* Branching coral using recursive tapered cylinders.
+* Rounded brain coral using a distorted sphere with ridge-like curves.
+* Small tube coral with multiple hollow cylinders.
+* Soft coral with animated curved branches.
+
+Use restrained colors:
+
+* Coral orange.
+* Muted pink.
+* Pale lavender.
+* Warm cream.
+* Deep red accents.
+
+Avoid turning the aquarium into a neon rainbow.
+
+Use emissive material only very subtly.
+
+\---
+
+# Clownfish
+
+Create three detailed procedural clownfish inspired by **Amphiprion ocellaris**.
+
+The fish must be recognizable from their body silhouette and coloration.
+
+They must not look like plain stretched spheres.
+
+## Required Fish Structure
+
+Each fish must be a hierarchy based on `THREE.Group`, with separate animated components.
+
+### Body
+
+Use one of these approaches:
+
+* Custom `LatheGeometry`.
+* Distorted high-segment sphere.
+* A body assembled from overlapping ellipsoids.
+* A custom parametric geometry.
+
+The shape should include:
+
+* Rounded head.
+* Fuller central body.
+* Narrow caudal peduncle near the tail.
+* Slightly flattened sides.
+* Curved belly.
+* Taper toward the tail.
+
+Suggested orientation:
+
+* Fish forward direction should follow a clearly documented local axis.
+* All movement and turning calculations must use the same axis consistently.
+
+### Clownfish Pattern
+
+Add:
+
+* Bright orange body.
+* Three white vertical bands.
+* Thin black borders around the white bands.
+* Dark edging around fins.
+* Slightly pale belly.
+
+The stripes should follow the body volume.
+
+Preferred approaches:
+
+1. A custom shader based on local body coordinates.
+2. Closely fitted stripe shell geometries.
+3. Segmented body sections with no obvious gaps.
+
+Do not place flat rectangular stripes through the fish body.
+
+### Head and Face
+
+Include:
+
+* Two eyes.
+* Dark pupils.
+* Small glossy highlight dots.
+* Slightly raised eye sockets.
+* Small mouth.
+* Optional cheek contour.
+
+The fish should look lively, but not overly cartoonish.
+
+### Tail
+
+Create a rounded fan-shaped tail from `ShapeGeometry` or thin `ExtrudeGeometry`.
+
+The tail must:
+
+* Wag continuously.
+* Bend more strongly while accelerating.
+* Slow slightly when hovering.
+* Have black edging.
+* Optionally contain an orange-to-transparent gradient approximation.
+
+### Fins
+
+Each fish must include:
+
+* One dorsal fin.
+* Two pectoral fins.
+* One anal fin.
+* Optional small pelvic fins.
+
+Animate:
+
+* Tail wagging.
+* Pectoral fin flapping.
+* Slight dorsal fin sway.
+* Small full-body undulation.
+
+## Fish Variation
+
+Use sizes near:
+
+* Fish 1: `0.88`
+* Fish 2: `1.0`
+* Fish 3: `1.12`
+
+Also vary:
+
+* Orange hue.
+* Stripe width.
+* Fin size.
+* Swimming speed.
+* Preferred aquarium zone.
+* Personality.
+
+Possible personalities:
+
+* Curious fish: approaches the front glass and follows food.
+* Shy fish: stays near the anemone and ruins.
+* Explorer fish: swims through the driftwood arch and around the entire tank.
+
+\---
+
+# Fish Movement and Behavior
+
+Implement autonomous movement using smooth waypoint navigation or lightweight steering behavior.
+
+Each fish should:
+
+* Choose reachable target positions within safe tank bounds.
+* Smoothly accelerate and decelerate.
+* Turn gradually using quaternion interpolation.
+* Bank gently during turns.
+* Bob slightly while swimming.
+* Avoid glass walls.
+* Avoid the floor and water surface.
+* Avoid passing directly through large decorations.
+* Maintain some separation from other fish.
+* Occasionally pause or hover near a plant, rock, or anemone.
+* Occasionally swim through the driftwood arch.
+* React to food particles.
+
+Do not use abrupt direction changes.
+
+## Boundary Avoidance
+
+Use soft steering forces near boundaries rather than only clamping positions.
+
+Fish should begin turning before reaching the glass.
+
+Maintain a safe margin from:
+
+* Front and back walls.
+* Side walls.
+* Sand.
+* Water surface.
+
+## Decorative Object Avoidance
+
+Represent large objects with simplified bounding spheres or boxes:
+
+* Anemone base.
+* Driftwood.
+* Temple ruins.
+* Large rocks.
+* Treasure chest.
+
+Fish should steer around these volumes.
+
+Perfect collision detection is unnecessary, but obvious clipping must be avoided.
+
+## Social Behavior
+
+Add lightweight schooling behavior:
+
+* Separation when fish are too close.
+* Mild alignment when nearby.
+* Occasional following.
+* No rigid synchronized formation.
+
+## Anemone Behavior
+
+At random intervals, one fish should:
+
+* Approach the anemone.
+* Slow down.
+* Circle it once.
+* Hover among the tentacles briefly.
+* Return to normal roaming.
+
+\---
+
+# Small Living Creatures
+
+Add at least two small secondary creatures.
+
+## Snail
+
+Create a small snail moving very slowly across:
+
+* A rock.
+* The aquarium glass.
+* Or the ruins.
+
+Include:
+
+* Spiral shell.
+* Small body.
+* Two antennae.
+
+Movement can be extremely slow but should be visible over time.
+
+## Cleaner Shrimp
+
+Create one small shrimp near a rock or anemone.
+
+Use:
+
+* Segmented translucent body.
+* Long antennae.
+* Tiny animated legs.
+* Gentle idle motion.
+
+The shrimp does not need advanced navigation.
+
+Optionally make it retreat slightly when a fish approaches.
+
+## Optional Tiny Crab
+
+A very small crab may occasionally:
+
+* Emerge from a burrow.
+* Walk sideways a short distance.
+* Hide again.
+
+Keep it simple and low-poly.
+
+\---
+
+# Bubble Systems
+
+Create several types of bubbles.
+
+## Continuous Aerator Stream
+
+Place a small air stone behind a rock.
+
+Spawn approximately 2–4 bubbles per second.
+
+Bubbles should:
+
+* Rise at slightly different speeds.
+* Wobble horizontally.
+* Vary in size.
+* Expand slightly near the surface.
+* Disappear at the waterline.
+* Recycle through an object pool.
+
+## Treasure Chest Bubble Burst
+
+Whenever the treasure chest opens:
+
+* Release 8–16 bubbles.
+* Use slightly larger bubbles.
+* Apply randomized outward velocities.
+* Fade them near the surface.
+
+## Microbubbles
+
+Add a small number of tiny slow particles suspended in the water.
+
+They should drift with the current and create a sense of water volume.
+
+\---
+
+# Suspended Particles and Plankton
+
+Create a lightweight particle system inside the tank with:
+
+* Tiny dust-like particles.
+* Slow vertical and horizontal drift.
+* Different depths.
+* Very low opacity.
+* Occasional faint glow.
+
+Add a few subtle bioluminescent plankton particles that brighten briefly at random.
+
+Keep the effect elegant and sparse.
+
+The particles should make the water feel deep without looking dirty.
+
+\---
+
+# Caustics and Underwater Lighting
+
+Create procedural moving caustic effects without image textures.
+
+Possible implementation:
+
+* Transparent animated planes projected near the sand.
+* Shader-generated moving wave patterns.
+* Several overlapping soft spotlights or projected mesh patterns.
+* Additive transparent polygons moving slowly across the floor.
+
+The caustics should:
+
+* Move slowly over sand, rocks, ruins, and fish.
+* Be strongest below the lamp.
+* Remain subtle.
+* Avoid obvious repeating stripes.
+
+\---
+
+# Lighting Setup
+
+Use a cinematic multi-light setup.
+
+## Ambient Light
+
+Soft blue-white fill:
+
+```js
+new THREE.AmbientLight(0xb3e5fc, 0.35)
+```
+
+## Hemisphere Light
+
+Add a hemisphere light:
+
+* Sky: pale blue.
+* Ground: deep teal or dark brown.
+* Low-to-medium intensity.
+
+## Main Aquarium Lamp
+
+Use one or two lights under the lamp housing:
+
+* Warm-white central light.
+* Slightly cool fill light.
+* Soft shadows.
+
+## Directional Key Light
+
+Place a directional light above and in front of the tank.
+
+Use:
+
+* Warm-white color.
+* Medium intensity.
+* Soft shadow map.
+* Large shadow camera bounds sized for the aquarium.
+
+## Accent Lights
+
+Add subtle accent lighting:
+
+* Weak cyan light from one side.
+* Very faint golden glow from the treasure chest.
+* Soft emissive anemone tips.
+* Optional dim violet light behind the ruins.
+
+Do not overexpose the fish or turn the glass completely white.
+
+\---
+
+# Shadows and Rendering
+
+Enable:
+
+```js
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+```
+
+Use shadow casting selectively:
+
+* Fish.
+* Large rocks.
+* Driftwood.
+* Ruins.
+* Treasure chest.
+* Major plants.
+
+Avoid enabling shadows on hundreds of tiny gravel objects if it damages performance.
+
+Use instancing or merged geometry for repeated small elements.
+
+Set the renderer pixel ratio to:
+
+```js
+Math.min(window.devicePixelRatio, 2)
+```
+
+to avoid excessive GPU load on high-density displays.
+
+\---
+
+# Camera and Controls
+
+Use `OrbitControls`.
+
+Default camera position should show a cinematic three-quarter view:
+
+* Slightly above the waterline.
+* In front of the tank.
+* Offset toward one side.
+* Looking toward the central anemone.
+
+Suggested camera position:
+
+```js
+camera.position.set(9, 6, 10);
+```
+
+Set the orbit target near the visual center of the tank.
+
+Controls should support:
+
+* Left mouse: orbit.
+* Mouse wheel: zoom.
+* Right mouse: pan.
+* Damping.
+* Limited vertical rotation.
+* Restricted zoom distance.
+* Restricted pan so the aquarium cannot be lost completely.
+
+Suggested values:
+
+```js
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.minDistance = 6;
+controls.maxDistance = 18;
+controls.maxPolarAngle = Math.PI \* 0.78;
+```
+
+Add a very subtle idle camera drift when the user has not interacted for several seconds.
+
+Stop or reduce idle movement immediately when the user interacts.
+
+\---
+
+# User Interaction
+
+Add meaningful but lightweight interaction.
+
+## Food Dropping
+
+When the user clicks the water surface or double-clicks inside the aquarium:
+
+* Spawn 8–15 tiny food particles near the clicked world position.
+* Create a small circular water ripple.
+* Food particles should sink slowly with horizontal drift.
+* Clownfish should notice nearby food.
+* Fish should temporarily change their target toward the food.
+* The closest fish should nibble a particle.
+* Remove eaten or expired particles.
+
+Do not allow unlimited particles. Use a maximum count or cooldown.
+
+Display a subtle initial hint:
+
+```text
+Drag to rotate • Scroll to zoom • Double-click the water to feed the fish
+```
+
+Fade the hint after a few seconds.
+
+## Glass Tap Reaction
+
+On a normal click on the front glass:
+
+* Create a small expanding ripple or circular highlight.
+* Nearby fish should turn away briefly.
+* Use a cooldown so the reaction is not spammed.
+
+## Hidden Object Interaction
+
+When the user clicks the treasure chest:
+
+* Trigger an early opening animation.
+* Release bubbles.
+* Increase its inner glow temporarily.
+
+When the user clicks the rubber duck:
+
+* Make it bob once or rotate comically.
+* Do not add external audio.
+
+\---
+
+# Optional Minimal Interface
+
+Add a small elegant control panel in one corner.
+
+Use plain HTML and CSS, not a UI framework.
+
+Possible controls:
+
+* `Feed fish`
+* `Day / Night`
+* `Pause`
+* `Reset camera`
+* `Hide UI`
+
+Keep the UI compact, translucent, and visually consistent with the scene.
+
+## Day/Night Toggle
+
+Day mode:
+
+* Brighter blue water.
+* Warm aquarium light.
+* More visible caustics.
+
+Night mode:
+
+* Dark navy environment.
+* Dimmed main lamp.
+* Stronger anemone tip glow.
+* More visible plankton.
+* Treasure glow slightly stronger.
+
+Transition between modes smoothly rather than changing instantly.
+
+\---
+
+# Animation Requirements
+
+Use one central `requestAnimationFrame` loop with delta time from `THREE.Clock`.
+
+Animate every frame:
+
+* Fish steering and movement.
+* Fish tail wagging.
+* Fin movement.
+* Subtle body undulation.
+* Plant swaying.
+* Anemone tentacles.
+* Bubble motion.
+* Water surface ripples.
+* Suspended particles.
+* Caustic patterns.
+* Snail movement.
+* Shrimp idle animation.
+* Treasure chest state.
+* Food particles.
+* Camera idle drift.
+* Lighting transitions.
+
+Movement should be frame-rate independent wherever practical.
+
+Use `deltaTime`, not only fixed per-frame increments.
+
+\---
+
+# Performance Strategy
+
+Maintain visual richness without creating unnecessary geometry.
+
+Use:
+
+* `InstancedMesh` for gravel and repeated pebbles.
+* Shared geometries and materials.
+* Object pooling for bubbles and food.
+* Low-poly distant details.
+* Moderate segment counts.
+* Selective shadow casting.
+* Maximum pixel ratio of 2.
+* Simple collision proxies.
+* `frustumCulled` defaults where appropriate.
+
+Avoid:
+
+* Thousands of individual draw calls.
+* Excessively subdivided geometry.
+* Heavy post-processing dependencies.
+* Real-time ray tracing.
+* Complex physics libraries.
+* Large transparent meshes layered unnecessarily.
+
+\---
+
+# Code Structure
+
+Organize the JavaScript into clear sections or classes:
+
+1. Renderer and scene initialization.
+2. Camera and controls.
+3. Lighting.
+4. Aquarium glass and frame.
+5. Water and water surface.
+6. Terrain and substrate.
+7. Decorations.
+8. Plant creation.
+9. Anemone creation.
+10. Fish model factory.
+11. Fish behavior system.
+12. Bubble system.
+13. Food and interaction system.
+14. Secondary creatures.
+15. Animation loop.
+16. Resize handling.
+17. Cleanup or object pooling helpers.
+
+Use descriptive names and comments.
+
+Avoid placing the entire application inside one unreadable function.
+
+\---
+
+# Visual Composition Guidelines
+
+Arrange the scene deliberately.
+
+Suggested layout:
+
+* Large anemone: slightly off-center.
+* Driftwood arch: opposite side of the anemone.
+* Ruins: one rear corner.
+* Treasure chest: partially beneath or beside the driftwood.
+* Tall plants: rear corners and behind the ruins.
+* Red accent plant: near the center.
+* Open sand path: across the front.
+* Air stone: hidden behind a feature rock.
+* Bottle: tilted near the front side.
+* Rubber duck: mostly hidden behind a plant.
+* Coral clusters: used to connect major props visually.
+
+The aquarium should look attractive from the default camera angle but contain additional discoveries from the sides and back.
+
+\---
+
+# Quality Priorities
+
+If every requested detail cannot be implemented perfectly, prioritize in this order:
+
+1. Stable working single-file HTML.
+2. Attractive aquarium composition.
+3. Recognizable animated clownfish.
+4. Dense and varied interior decoration.
+5. Natural fish movement.
+6. Glass, water, and lighting quality.
+7. Anemone and plant animation.
+8. User feeding interaction.
+9. Bubbles and atmospheric particles.
+10. Secondary creatures and hidden jokes.
+
+Do not remove all environmental details simply to make the fish more complex.
+
+\---
+
+# Acceptance Criteria
+
+The final output is successful only if:
+
+* It is one complete HTML file.
+* It launches without console errors.
+* The aquarium is clearly visible immediately.
+* The aquarium contains three recognizable clownfish.
+* Fish have animated tails and fins.
+* Fish move autonomously and remain inside the tank.
+* Fish do not constantly clip through major decorations.
+* The interior contains sand, gravel, rocks, plants, coral, anemone, driftwood, ruins, treasure chest, bubbles, and smaller decorative items.
+* The aquarium does not appear empty from any major viewing angle.
+* The glass remains transparent enough to see the scene.
+* The water surface is visibly animated.
+* Plants and anemone tentacles sway independently.
+* The treasure chest periodically opens and releases bubbles.
+* At least one small secondary creature is visibly animated.
+* OrbitControls work correctly.
+* Double-clicking the water drops food that attracts fish.
+* The scene remains visually coherent rather than looking like randomly scattered primitives.
+* The finished page feels alive, relaxing, playful, and screenshot-worthy.
+
+\---
+
+# Final Output Instructions
+
+Return only the complete HTML code inside a single code block.
+
+Do not provide explanations before or after the code.
+
+Do not use placeholders such as:
+
+* “Add fish here.”
+* “Implement animation later.”
+* “Rest of code omitted.”
+* “Use your own shader.”
+* “Insert geometry.”
+
+All requested systems must be implemented directly in the delivered HTML.
+
+Before producing the final answer, internally check:
+
+* All imports use compatible Three.js versions.
+* Every referenced variable and function exists.
+* Materials and geometries are valid.
+* The animation loop starts.
+* Resize handling works.
+* Transparent objects do not completely hide the interior.
+* Fish orientation matches their movement direction.
+* Interaction event handlers use correct pointer coordinates and raycasting.
+* The scene remains usable even if advanced effects require a simpler fallback.
+
