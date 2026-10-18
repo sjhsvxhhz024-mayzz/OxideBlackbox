@@ -1,5 +1,9 @@
 extends Node
-## Main menu (stage 1): intro animation, focus-follows-mouse buttons and placeholder actions.
+## Main menu: intro animation, focus-follows-mouse buttons, server browser and settings overlays.
+
+const ServerPanel := preload("res://scripts/ui/server_panel.gd")
+const SettingsPanel := preload("res://scripts/ui/settings_panel.gd")
+const CharacterPanel := preload("res://scripts/ui/character_panel.gd")
 
 const TOAST_TIME := 2.4
 
@@ -21,11 +25,20 @@ func _ready() -> void:
 		button.focus_entered.connect(_on_button_focus.bind(button, true))
 		button.focus_exited.connect(_on_button_focus.bind(button, false))
 		button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
-	$UI/Root/Panel/Buttons/Play.pressed.connect(_show_toast.bind("Игровой мир появится на следующем этапе"))
-	$UI/Root/Panel/Buttons/Character.pressed.connect(_show_toast.bind("Экран персонажа — скоро"))
-	$UI/Root/Panel/Buttons/Settings.pressed.connect(_show_toast.bind("Настройки — скоро"))
+	$UI/Root/Panel/Buttons/Play.pressed.connect(_open.bind(ServerPanel))
+	$UI/Root/Panel/Buttons/Character.pressed.connect(_open.bind(CharacterPanel))
+	$UI/Root/Panel/Buttons/Settings.pressed.connect(_open.bind(SettingsPanel))
 	$UI/Root/Panel/Buttons/Exit.pressed.connect(_on_exit_pressed)
 	_play_intro()
+
+
+func _open(script: GDScript) -> void:
+	var panel: Control = script.new()
+	panel.theme = load("res://ui/menu_theme.tres")
+	$UI/Root.add_child(panel)
+	$UI/Root.move_child(panel, $UI/Root/Fade.get_index())
+	var focused := get_viewport().gui_get_focus_owner()
+	panel.closed.connect(func() -> void: if is_instance_valid(focused): focused.grab_focus())
 
 
 func _play_intro() -> void:

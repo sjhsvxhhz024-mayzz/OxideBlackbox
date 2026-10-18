@@ -1,0 +1,61 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/game.gd" id="1_game"]
+[ext_resource type="Script" path="res://scripts/game/world.gd" id="2_world"]
+[ext_resource type="Script" path="res://scripts/game/player.gd" id="3_player"]
+[ext_resource type="PackedScene" path="res://assets/models/game/hand_rock.glb" id="4_hand"]
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="5_hud"]
+[ext_resource type="Theme" path="res://ui/menu_theme.tres" id="6_theme"]
+[ext_resource type="PackedScene" path="res://assets/models/game/rock_ai.glb" id="7_rock"]
+[ext_resource type="PackedScene" path="res://assets/models/game/player_ai.glb" id="8_body"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.35
+height = 1.8
+
+[node name="Game" type="Node3D"]
+script = ExtResource("1_game")
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("2_world")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+script = ExtResource("3_player")
+
+[node name="Collision" type="CollisionShape3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="Head" type="Node3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+
+[node name="Camera3D" type="Camera3D" parent="Player/Head"]
+current = true
+fov = 80.0
+near = 0.03
+far = 500.0
+
+[node name="Hold" type="Node3D" parent="Player/Head/Camera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.24, -0.25, -0.42)
+
+[node name="Swing" type="Node3D" parent="Player/Head/Camera3D/Hold"]
+
+[node name="HandRock" parent="Player/Head/Camera3D/Hold/Swing" instance=ExtResource("4_hand")]
+transform = Transform3D(-0.906, 0.1, -0.41, 0, 0.97, 0.24, 0.42, 0.22, -0.88, 0, 0, 0)
+
+[node name="RockAI" parent="Player/Head/Camera3D/Hold/Swing/HandRock" instance=ExtResource("7_rock")]
+
+[node name="Body" parent="Player" instance=ExtResource("8_body")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+visible = false
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="HUD"]
+process_mode = 3
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme = ExtResource("6_theme")
+script = ExtResource("5_hud")

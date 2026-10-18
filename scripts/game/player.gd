@@ -1,0 +1,214 @@
+extends CharacterBody3D
+## First-person survivor: movement, mouse look, survival stats and the rock in hand
+## (idle hold sway, swing animation, gathering on hit).
+
+signal stats_changed
+signal gathered(items: Array)
+signal target_changed(node: ResourceNode)
+signal message(text: String)
+
+const WALK := 4.5
+const SPRINT := 7.2
+const JUMP := 4.6
+const REACH := 2.8
+const SWING_TIME := 0.62
+const HUNGER_RATE := 100.0 / 1500.0
+const THIRST_RATE := 100.0 / 1000.0
+
+var inventory: Inventory
+var selected := 0
+var health := 100.0
+var hunger := 100.0
+var thirst := 100.0
+var controls_enabled := true
+var third_person := false
+
+var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+var _pitch := 0.0
+var _swinging := false
+var _bob := 0.0
+var _sway := Vector2.ZERO
+var _hold_base: Transform3D
+var _target: ResourceNode
+
+@onready var _head: Node3D = $Head
+@onready var _camera: Camera3D = $Head/Camera3D
+@onready var _hold: Node3D = $Head/Camera3D/Hold
+@onready var _swing_pivot: Node3D = $Head/Camera3D/Hold/Swing
+
+
+func _ready() -> void:
+	_hold_base = _hold.transform
+	# The AI-generated rock replaces the procedural one baked into the hand model.
+	var procedural := find_child("HeldRock", true, false) as Node3D
+	if procedural:
+		procedural.visible = false
+	ModelUtil.use_vertex_colors(find_child("RockAI", true, false), 0.9)
+	ModelUtil.use_vertex_colors($Body, 0.85)
+	Settings.changed.connect(_apply_settings)
+	_apply_settings()
+
+
+func _apply_settings() -> void:
+	_camera.fov = float(Settings.get_value("fov"))
+
+
+func held_item() -> String:
+	return inventory.slots[selected].get("id", "") if inventory else ""
+
+
+func select_slot(index: int) -> void:
+	selected = clampi(index, 0, Inventory.HOTBAR - 1)
+	_update_held()
+
+
+func set_third_person(on: bool) -> void:
+	third_person = on
+	$Body.visible = on
+	_camera.position = Vector3(0.45, 0.25, 2.8) if on else Vector3.ZERO
+	_update_held()
+
+
+func _update_held() -> void:
+	var holding := held_item() == "rock" and not third_person
+	if holding and not _hold.visible:
+		_hold.visible = true
+		_hold.position = _hold_base.origin + Vector3(0, -0.35, 0)
+		create_tween().tween_property(_hold, "position", _hold_base.origin, 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	elif not holding:
+		_hold.visible = false
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not controls_enabled:
+		return
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		var sens := float(Settings.get_value("mouse_sensitivity")) * 0.01
+		var dy: float = event.relative.y * (-1.0 if Settings.get_value("invert_y") else 1.0)
+		rotate_y(-event.relative.x * sens)
+		_pitch = clampf(_pitch - dy * sens, deg_to_rad(-88.0), deg_to_rad(88.0))
+		_head.rotation.x = _pitch
+		_sway += Vector2(event.relative.x, event.relative.y) * 0.0004
+	elif event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			select_slot((selected + 1) % Inventory.HOTBAR)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			select_slot((selected + Inventory.HOTBAR - 1) % Inventory.HOTBAR)
+	if event.is_action_pressed("toggle_view"):
+		set_third_person(not third_person)
+	for i in Inventory.HOTBAR:
+		if event.is_action_pressed("slot_%d" % (i + 1)):
+			select_slot(i)
+
+
+func _physics_process(delta: float) -> void:
+	var input := Vector2.ZERO
+	if controls_enabled:
+		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var sprinting := controls_enabled and Input.is_action_pressed("sprint") and input.y < 0.0
+	var speed := SPRINT if sprinting else WALK
+	var direction := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
+	var accel := 12.0 if is_on_floor() else 3.0
+	velocity.x = move_toward(velocity.x, direction.x * speed, accel * speed * delta)
+	velocity.z = move_toward(velocity.z, direction.z * speed, accel * speed * delta)
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	elif controls_enabled and Input.is_action_just_pressed("jump"):
+		velocity.y = JUMP
+	move_and_slide()
+	if position.y < -50.0:
+		position = Vector3(0, 30, 0)
+		velocity = Vector3.ZERO
+	_update_stats(delta, sprinting and input != Vector2.ZERO)
+	if controls_enabled and Input.is_action_pressed("attack"):
+		_try_swing()
+	_update_target()
+
+
+func _process(delta: float) -> void:
+	var moving := Vector2(velocity.x, velocity.z).length()
+	_bob += delta * (1.6 + moving * 1.4)
+	_sway = _sway.lerp(Vector2.ZERO, 1.0 - exp(-delta * 8.0))
+	if _hold.visible and not _swinging:
+		var breathe := Vector3(sin(_bob * 0.5) * 0.004, sin(_bob) * (0.003 + moving * 0.0035), 0)
+		var offset := Vector3(-_sway.x, _sway.y, 0).limit_length(0.04)
+		_hold.position = _hold.position.lerp(_hold_base.origin + breathe + offset, 1.0 - exp(-delta * 14.0))
+		_hold.rotation.z = lerpf(_hold.rotation.z, -_sway.x * 2.0, 1.0 - exp(-delta * 10.0))
+	if not third_person and is_on_floor():
+		_camera.position.y = sin(_bob * 2.0) * 0.025 * clampf(moving / WALK, 0, 1)
+
+
+func _try_swing() -> void:
+	if _swinging:
+		return
+	if held_item() != "rock":
+		message.emit("Возьмите камень в руку (ячейка 1)")
+		return
+	_swinging = true
+	var tween := create_tween()
+	tween.tween_property(_swing_pivot, "rotation", Vector3(deg_to_rad(35), deg_to_rad(-10), deg_to_rad(8)), 0.14) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(_swing_pivot, "position", Vector3(0.02, 0.08, 0.06), 0.14)
+	tween.tween_property(_swing_pivot, "rotation", Vector3(deg_to_rad(-55), deg_to_rad(12), deg_to_rad(-6)), 0.1) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(_swing_pivot, "position", Vector3(-0.05, -0.06, -0.22), 0.1)
+	tween.tween_callback(_hit)
+	tween.tween_property(_swing_pivot, "rotation", Vector3.ZERO, 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(_swing_pivot, "position", Vector3.ZERO, 0.3)
+	tween.tween_interval(maxf(SWING_TIME - 0.54, 0.0))
+	tween.tween_callback(func() -> void: _swinging = false)
+
+
+func _ray() -> Dictionary:
+	var from := _head.global_position
+	var to := from - _camera.global_transform.basis.z * REACH
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_ray(query)
+
+
+func _hit() -> void:
+	var hit := _ray()
+	if hit.is_empty():
+		return
+	_camera.h_offset = 0.0
+	var shake := create_tween()
+	shake.tween_property(_camera, "v_offset", -0.015, 0.03)
+	shake.tween_property(_camera, "v_offset", 0.0, 0.12)
+	var node := hit.collider as ResourceNode
+	if node == null:
+		return
+	var items := node.gather(hit.position)
+	for item: Array in items:
+		var left := inventory.add(item[0], item[1])
+		if left > 0:
+			message.emit("Инвентарь заполнен")
+	if not items.is_empty():
+		gathered.emit(items)
+	target_changed.emit(node)
+
+
+func _update_target() -> void:
+	var hit := _ray()
+	var node: ResourceNode = hit.collider as ResourceNode if not hit.is_empty() else null
+	if node and node.hits_left <= 0:
+		node = null
+	if node != _target:
+		_target = node
+		target_changed.emit(node)
+
+
+func _update_stats(delta: float, sprinting: bool) -> void:
+	hunger = maxf(hunger - HUNGER_RATE * delta * (1.6 if sprinting else 1.0), 0.0)
+	thirst = maxf(thirst - THIRST_RATE * delta * (1.8 if sprinting else 1.0), 0.0)
+	if hunger <= 0.0 or thirst <= 0.0:
+		health = maxf(health - 0.6 * delta, 0.0)
+	elif hunger > 50.0 and thirst > 50.0:
+		health = minf(health + 0.15 * delta, 100.0)
+	if health <= 0.0:
+		message.emit("Вы погибли — возрождение")
+		health = 100.0
+		hunger = 100.0
+		thirst = 100.0
+		position = Vector3(0, 30, 0)
+	stats_changed.emit()
