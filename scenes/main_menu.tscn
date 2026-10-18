@@ -1,0 +1,144 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/main_menu.gd" id="1_menu"]
+[ext_resource type="PackedScene" path="res://scenes/menu_world.tscn" id="2_world"]
+[ext_resource type="Theme" path="res://ui/menu_theme.tres" id="3_theme"]
+[ext_resource type="Shader" path="res://shaders/panel_blur.gdshader" id="4_blur"]
+[ext_resource type="FontFile" path="res://assets/fonts/Oswald-Variable.ttf" id="5_font"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_panel"]
+shader = ExtResource("4_blur")
+shader_parameter/blur_lod = 3.2
+shader_parameter/tint = Color(0.045, 0.05, 0.06, 0.8)
+shader_parameter/edge_shadow = 0.35
+
+[sub_resource type="FontVariation" id="FontVariation_title"]
+base_font = ExtResource("5_font")
+variation_opentype = {2003265652: 650}
+spacing_glyph = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_toast"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 14.0
+bg_color = Color(0.05, 0.055, 0.065, 0.85)
+border_width_left = 3
+border_color = Color(0.87, 0.53, 0.32, 1)
+
+[node name="MainMenu" type="Node"]
+script = ExtResource("1_menu")
+
+[node name="World" parent="." instance=ExtResource("2_world")]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("3_theme")
+
+[node name="Panel" type="ColorRect" parent="UI/Root"]
+material = SubResource("ShaderMaterial_panel")
+layout_mode = 1
+anchor_right = 0.3365
+anchor_bottom = 1.0
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Title" type="Label" parent="UI/Root/Panel"]
+layout_mode = 1
+anchor_right = 1.0
+offset_top = 50.0
+offset_bottom = 240.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.93, 0.9, 0.82, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.35)
+theme_override_constants/shadow_offset_y = 4
+theme_override_fonts/font = SubResource("FontVariation_title")
+theme_override_font_sizes/font_size = 150
+text = "TEZEROK"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Buttons" type="VBoxContainer" parent="UI/Root/Panel"]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -233.0
+offset_top = 312.0
+offset_right = 233.0
+offset_bottom = 816.0
+grow_horizontal = 2
+theme_override_constants/separation = 25
+
+[node name="Play" type="Button" parent="UI/Root/Panel/Buttons"]
+custom_minimum_size = Vector2(0, 107)
+layout_mode = 2
+text = "ИГРАТЬ"
+
+[node name="Character" type="Button" parent="UI/Root/Panel/Buttons"]
+custom_minimum_size = Vector2(0, 107)
+layout_mode = 2
+text = "ПЕРСОНАЖ"
+
+[node name="Settings" type="Button" parent="UI/Root/Panel/Buttons"]
+custom_minimum_size = Vector2(0, 107)
+layout_mode = 2
+text = "НАСТРОЙКИ"
+
+[node name="Exit" type="Button" parent="UI/Root/Panel/Buttons"]
+custom_minimum_size = Vector2(0, 107)
+layout_mode = 2
+text = "ВЫХОД"
+
+[node name="Version" type="Label" parent="UI/Root/Panel"]
+layout_mode = 1
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -64.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.62, 0.62, 0.6, 0.8)
+theme_override_font_sizes/font_size = 24
+text = "v0.1"
+horizontal_alignment = 1
+
+[node name="Toast" type="PanelContainer" parent="UI/Root"]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -640.0
+offset_top = -140.0
+offset_right = -60.0
+offset_bottom = -60.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_toast")
+
+[node name="Label" type="Label" parent="UI/Root/Toast"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Fade" type="ColorRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)

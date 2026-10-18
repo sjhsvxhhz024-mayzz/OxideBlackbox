@@ -1,0 +1,35 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/menu_world.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/camera_drift.gd" id="2_camera"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_background.glb" id="3_background"]
+[ext_resource type="PackedScene" path="res://assets/models/player_photo.glb" id="4_player"]
+
+[sub_resource type="Environment" id="Environment_menu"]
+background_color = Color(0.05, 0.06, 0.07, 1)
+background_mode = 1
+tonemap_mode = 0
+glow_enabled = true
+glow_intensity = 0.8
+glow_bloom = 0.0
+glow_hdr_threshold = 1.0
+
+[node name="MenuWorld" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_menu")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = true
+fov = 32.0
+near = 0.05
+far = 12000.0
+script = ExtResource("2_camera")
+drift = Vector2(0.012, 0.008)
+parallax = Vector2(0.025, 0.012)
+parallax_rotation = Vector2(0.0025, 0.0015)
+
+[node name="Background" parent="." instance=ExtResource("3_background")]
+
+[node name="Player" parent="." instance=ExtResource("4_player")]

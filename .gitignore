@@ -1,37 +1,22 @@
-# === Build output ===
-*.apk
-*.aar
-*.ap_
-*.aab
-*.dex
-*.class
-bin/
-gen/
-out/
-build/
-.cxx/
-.externalNativeBuild/
+# Godot
+/.godot/
+/build/
+*.tmp
 
-# === Gradle ===
-.gradle/
-!gradle/wrapper/gradle-wrapper.jar
+# Blender backups
+*.blend1
+*.blend@
 
-# === Local / IDE config ===
-local.properties
-.idea/
-.androidide/
-*.iml
+# Local tools and downloaded installers (Blender, Godot)
+/.tools/
+/downloads/
 
-# === Keystore / secrets (НИКОГДА не коммитить) ===
-*.jks
-*.keystore
-*.bks
-*.p12
-*.pem
-google-services.json
-keystore.properties
+# Workspace service files
+/.hoplite/
+__pycache__/
+/override.cfg
+/debug_*.tscn
+/debug_*.gd
 
-# === Logs / OS ===
-*.log
-.DS_Store
-Thumbs.db
+# AI pipeline intermediates (regenerate with tools/ai_pipeline/*.py)
+/tools/ai_pipeline/work/*.npy
