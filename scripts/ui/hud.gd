@@ -102,11 +102,11 @@ func _build_hotbar() -> void:
 	bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	bar.offset_top = -120
-	bar.offset_bottom = -28
+	bar.offset_top = -112
+	bar.offset_bottom = -26
 	add_child(bar)
 	for i in Inventory.HOTBAR:
-		var slot := SlotView.new(i, inventory, 92, true)
+		var slot := SlotView.new(i, inventory, 86, true)
 		slot.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				player.select_slot(i))
@@ -115,43 +115,51 @@ func _build_hotbar() -> void:
 
 
 func _build_stats() -> void:
+	# Bottom-right survival bars (health / water / food), Rust-style: icon, value, coloured fill.
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
-	box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	box.add_theme_constant_override("separation", 4)
+	box.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	box.offset_left = -330
-	box.offset_right = -24
-	box.offset_top = 24
+	box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	box.offset_left = -300
+	box.offset_right = -22
+	box.offset_top = -126
+	box.offset_bottom = -28
 	add_child(box)
-	for spec in [["health", "ЗДОРОВЬЕ", Color(0.78, 0.25, 0.22)], ["hunger", "ГОЛОД", Color(0.85, 0.6, 0.22)],
-			["thirst", "ЖАЖДА", Color(0.27, 0.6, 0.85)]]:
-		var panel := PanelContainer.new()
-		var style := UiKit.panel_style(0.55)
-		style.set_content_margin_all(8)
-		panel.add_theme_stylebox_override("panel", style)
-		box.add_child(panel)
+	for spec in [["health", "✚", Color(0.53, 0.66, 0.24)], ["thirst", "💧", Color(0.24, 0.55, 0.78)],
+			["hunger", "🍖", Color(0.78, 0.43, 0.16)]]:
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		panel.add_child(row)
-		var name_label := UiKit.label(spec[1], 18, spec[2].lightened(0.3))
-		name_label.custom_minimum_size = Vector2(100, 0)
-		row.add_child(name_label)
+		row.add_theme_constant_override("separation", 0)
+		row.custom_minimum_size = Vector2(0, 30)
+		box.add_child(row)
+		var icon_bg := PanelContainer.new()
+		var icon_style := StyleBoxFlat.new()
+		icon_style.bg_color = Color(0.12, 0.12, 0.11, 0.78)
+		icon_bg.add_theme_stylebox_override("panel", icon_style)
+		icon_bg.custom_minimum_size = Vector2(30, 30)
+		row.add_child(icon_bg)
+		var icon := UiKit.label(spec[1], 16, Color(0.85, 0.83, 0.78))
+		icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		icon_bg.add_child(icon)
 		var bar := ProgressBar.new()
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(130, 14)
-		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.size_flags_vertical = Control.SIZE_FILL
 		var fill := StyleBoxFlat.new()
 		fill.bg_color = spec[2]
 		bar.add_theme_stylebox_override("fill", fill)
 		var bg := StyleBoxFlat.new()
-		bg.bg_color = Color(0, 0, 0, 0.45)
+		bg.bg_color = Color(0.1, 0.1, 0.1, 0.6)
 		bar.add_theme_stylebox_override("background", bg)
 		row.add_child(bar)
-		var value := UiKit.label("100", 20)
-		value.custom_minimum_size = Vector2(40, 0)
-		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		row.add_child(value)
+		var value := UiKit.label("100", 19, Color(1, 1, 1, 0.92))
+		value.add_theme_constant_override("outline_size", 4)
+		value.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+		value.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		value.offset_left = 8
+		value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		bar.add_child(value)
 		_bars[spec[0]] = [bar, value]
 
 

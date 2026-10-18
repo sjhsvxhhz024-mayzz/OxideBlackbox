@@ -51,10 +51,10 @@ func refresh() -> void:
 
 func _restyle() -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.55, 0.32, 0.18, 0.55) if selected else Color(0.08, 0.09, 0.1, 0.6)
-	style.border_color = UiKit.ACCENT if selected else Color(1, 1, 1, 0.08)
+	style.bg_color = Color(0.17, 0.42, 0.66, 0.75) if selected else Color(0.2, 0.2, 0.19, 0.55)
+	style.border_color = Color(0.45, 0.7, 0.95, 0.9) if selected else Color(1, 1, 1, 0.05)
 	style.set_border_width_all(2 if selected else 1)
-	style.set_corner_radius_all(3)
+	style.set_corner_radius_all(0)
 	style.set_content_margin_all(6)
 	add_theme_stylebox_override("panel", style)
 

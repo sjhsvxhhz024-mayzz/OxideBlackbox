@@ -11,7 +11,9 @@ const WALK := 4.5
 const SPRINT := 7.2
 const JUMP := 4.6
 const REACH := 2.8
-const SWING_TIME := 0.62
+const SWING_TIME := 0.75
+## Contact frame of the viewmodel "Swing" action (frame 9 at 30 fps).
+const HIT_TIME := 0.3
 const HUNGER_RATE := 100.0 / 1500.0
 const THIRST_RATE := 100.0 / 1000.0
 
@@ -29,6 +31,8 @@ var _swinging := false
 var _bob := 0.0
 var _sway := Vector2.ZERO
 var _hold_base: Transform3D
+var _view_anim: AnimationPlayer
+var _body_anim: AnimationPlayer
 var _target: ResourceNode
 
 @onready var _head: Node3D = $Head
@@ -39,12 +43,19 @@ var _target: ResourceNode
 
 func _ready() -> void:
 	_hold_base = _hold.transform
-	# The AI-generated rock replaces the procedural one baked into the hand model.
-	var procedural := find_child("HeldRock", true, false) as Node3D
-	if procedural:
-		procedural.visible = false
-	ModelUtil.use_vertex_colors(find_child("RockAI", true, false), 0.9)
+	ModelUtil.use_vertex_colors($Head/Camera3D/Hold/Swing/Viewmodel, 0.75)
 	ModelUtil.use_vertex_colors($Body, 0.85)
+	for meshi in $Head/Camera3D/Hold.find_children("*", "MeshInstance3D", true, false):
+		meshi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_view_anim = $Head/Camera3D/Hold/Swing/Viewmodel.find_child("AnimationPlayer", true, false)
+	_body_anim = $Body.find_child("AnimationPlayer", true, false)
+	for anim_player in [_view_anim, _body_anim]:
+		for anim_name in ["Idle", "Walk", "Run"]:
+			if anim_player.has_animation(anim_name):
+				anim_player.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
+	_view_anim.animation_finished.connect(func(_n: StringName) -> void: _view_anim.play("Idle", 0.15))
+	_view_anim.play("Idle")
+	_body_anim.play("Idle")
 	Settings.changed.connect(_apply_settings)
 	_apply_settings()
 
@@ -73,8 +84,8 @@ func _update_held() -> void:
 	var holding := held_item() == "rock" and not third_person
 	if holding and not _hold.visible:
 		_hold.visible = true
-		_hold.position = _hold_base.origin + Vector3(0, -0.35, 0)
-		create_tween().tween_property(_hold, "position", _hold_base.origin, 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		if _view_anim:
+			_view_anim.play("Draw")
 	elif not holding:
 		_hold.visible = false
 
@@ -123,6 +134,19 @@ func _physics_process(delta: float) -> void:
 	if controls_enabled and Input.is_action_pressed("attack"):
 		_try_swing()
 	_update_target()
+	_update_body_anim()
+
+
+func _update_body_anim() -> void:
+	if _body_anim == null or not $Body.visible:
+		return
+	if _body_anim.current_animation == "Swing" and _body_anim.is_playing():
+		return
+	var speed := Vector2(velocity.x, velocity.z).length()
+	var want := "Idle" if speed < 0.5 else ("Run" if speed > WALK + 0.5 else "Walk")
+	if _body_anim.current_animation != want:
+		_body_anim.play(want, 0.2)
+	_body_anim.speed_scale = 1.0 if want == "Idle" else speed / (WALK if want == "Walk" else SPRINT)
 
 
 func _process(delta: float) -> void:
@@ -145,17 +169,15 @@ func _try_swing() -> void:
 		message.emit("Возьмите камень в руку (ячейка 1)")
 		return
 	_swinging = true
+	if third_person:
+		_body_anim.play("Swing", 0.08)
+	else:
+		_view_anim.stop()
+		_view_anim.play("Swing")
 	var tween := create_tween()
-	tween.tween_property(_swing_pivot, "rotation", Vector3(deg_to_rad(35), deg_to_rad(-10), deg_to_rad(8)), 0.14) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.parallel().tween_property(_swing_pivot, "position", Vector3(0.02, 0.08, 0.06), 0.14)
-	tween.tween_property(_swing_pivot, "rotation", Vector3(deg_to_rad(-55), deg_to_rad(12), deg_to_rad(-6)), 0.1) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.parallel().tween_property(_swing_pivot, "position", Vector3(-0.05, -0.06, -0.22), 0.1)
+	tween.tween_interval(HIT_TIME)
 	tween.tween_callback(_hit)
-	tween.tween_property(_swing_pivot, "rotation", Vector3.ZERO, 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.parallel().tween_property(_swing_pivot, "position", Vector3.ZERO, 0.3)
-	tween.tween_interval(maxf(SWING_TIME - 0.54, 0.0))
+	tween.tween_interval(SWING_TIME - HIT_TIME)
 	tween.tween_callback(func() -> void: _swinging = false)
 
 
