@@ -1,7 +1,9 @@
-"""TEZEROK — first-person viewmodel: bare right hand (from below, palm up) holding the AI rock.
+"""TEZEROK — first-person viewmodel: both hands cupping the starter rock from below.
 
-Built in camera space (camera at the origin looking along +Y, up +Z), rigged with 18 bones
-(arm, hand, 3-bone thumb and fingers) and three actions: Idle, Draw, Swing.
+Camera space: camera at the origin looking along +Y, up +Z, right +X. Each hand is modelled flat
+(palm up, fingers along +Y) and then wrapped onto the rock sphere so palm and fingers conform to it,
+the way the fingers curl over the front of the rock in the reference screenshot.
+Rig: root (rock) -> arm.L/R -> hand -> fingers; actions Idle, Draw, Swing (hit at frame 9 / 30 fps).
 
 Run:    blender -b --factory-startup --python blender/build_viewmodel.py
 Writes: assets/models/game/viewmodel_rock.glb
@@ -19,85 +21,107 @@ import tz_common as tz  # noqa: E402
 
 V = Vector
 scene = tz.reset_scene()
-FPS = 30
 
-# ----------------------------------------------------------------------------- hand skeleton (local frame)
-# local: wrist at origin, fingers +Y, palm normal +Z (palm up), thumb on +X
-ROCK_C = V((-0.002, 0.07, 0.06))
-ROCK_D = 0.15
-chains = {}  # name -> list of joint points
-radii = {}
-chains["arm"] = [V((0.0, -0.30, -0.07)), V((0.0, -0.14, -0.03)), V((0.0, 0.018, 0.0))]
-radii["arm"] = [(0.042, 0.038), (0.036, 0.032), (0.03, 0.022)]
-chains["palm"] = [V((0.0, 0.0, 0.0)), V((0.0, 0.045, 0.002)), V((0.0, 0.082, 0.004))]
-radii["palm"] = [(0.03, 0.02), (0.042, 0.018), (0.043, 0.015)]
-FINGERS = [("index", 0.027, 1.1, (28, 42, 30)), ("middle", 0.009, 1.18, (30, 44, 30)),
-           ("ring", -0.009, 1.1, (32, 44, 30)), ("pinky", -0.026, 0.9, (36, 44, 30))]
-for name, x, k, curls in FINGERS:
-    p = V((x, 0.078, 0.004))
-    d = V((0.0, 1.0, 0.0))
-    pts = [p.copy()]
-    for seg, ang in zip((0.043 * k, 0.027 * k, 0.022 * k), curls):
-        d = Matrix.Rotation(math.radians(ang), 3, "X") @ d
-        p = p + d * seg
-        pts.append(p.copy())
-    chains[name] = pts
-    r = 0.0098 * (0.9 if name == "pinky" else 1.0)
-    radii[name] = [(r, r * 0.9), (r * 0.92, r * 0.85), (r * 0.85, r * 0.78), (r * 0.75, r * 0.7)]
-tp = [V((0.026, 0.012, -0.004))]
-for d, seg in ((V((0.65, 0.55, 0.45)), 0.042), (V((0.25, 0.55, 0.8)), 0.032), (V((-0.15, 0.45, 0.88)), 0.026)):
-    tp.append(tp[-1] + d.normalized() * seg)
-chains["thumb"] = tp
-radii["thumb"] = [(0.017, 0.014), (0.0125, 0.0115), (0.011, 0.0105), (0.0095, 0.009)]
-
-# local -> camera space: rock centre in the lower middle of the screen, fingers to the left
-fy = V((-0.55, 0.3, 0.78)).normalized()
-fz = V((0.15, -0.9, 0.4))
-fz = (fz - fy * fz.dot(fy)).normalized()
-fx = fy.cross(fz)
-basis = Matrix((fx, fy, fz)).transposed()
-ROCK_WORLD = V((0.015, 0.235, -0.088))
-origin = ROCK_WORLD - basis @ ROCK_C
-HAND_SCALE = 1.4
-basis = basis * HAND_SCALE
-origin = ROCK_WORLD - basis @ ROCK_C
-LOCAL_TO_CAM = Matrix.Translation(origin) @ basis.to_4x4()
-
-
-def cam(p):
-    return LOCAL_TO_CAM @ V(p)
-
-
-# ----------------------------------------------------------------------------- mesh
-SKIN = tz.rgb("#c58c6a")
+ROCK_C = V((0.02, 0.29, -0.105))
+ROCK_R = 0.12
+GAP = 0.004  # skin sits this far above the rock surface
+SKIN = tz.rgb("#c9967b")
+SKIN_PALM = tz.rgb("#d8aa92")
 SLEEVE = tz.rgb("#2f3236")
-parts = []
-for name, pts in chains.items():
-    nodes = [(p, r) for p, r in zip(pts, radii[name])]
-    me = tz.skin_mesh("hand_" + name, nodes, [(i, i + 1) for i in range(len(pts) - 1)], root=0, subsurf=2)
-    bm = tz.bm_from_mesh(me)
-    col = tz.color_layer(bm)
-    for v in bm.verts:
-        c = SKIN
-        if name == "arm" and v.co.y < -0.075:
-            c = SLEEVE
-        elif name not in ("arm", "palm"):
-            tip = (v.co - pts[-1]).length < 0.012
-            c = tz.rgb("#d29a7c") if tip else SKIN
-        if name in ("palm",) and v.co.z < -0.005:
-            c = tz.rgb("#d6a184")  # palm side is lighter
-        v[col] = c
-    bmesh.ops.transform(bm, matrix=LOCAL_TO_CAM, verts=bm.verts[:])
-    obj = tz.mesh_object("part_" + name, bm, [tz.material("ViewSkin", "#ffffff", 0.6)], smooth=True, sharp_angle=None)
-    parts.append(obj)
-hand = tz.join_objects(parts, "ViewHand")
+
+
+# ----------------------------------------------------------------------------- flat hand (local frame)
+# origin at the wrist, fingers +Y, palm surface z=0 facing the rock (+Z into the rock), thumb on side*X
+def hand_chains(side):
+    chains, radii = {}, {}
+    chains["arm"] = [V((0, -0.34, -0.03)), V((0, -0.18, -0.025)), V((0, -0.0, -0.018))]
+    radii["arm"] = [(0.046, 0.04), (0.04, 0.035), (0.034, 0.024)]
+    chains["palm"] = [V((0, 0.0, -0.016)), V((0, 0.05, -0.015)), V((0, 0.092, -0.014))]
+    radii["palm"] = [(0.032, 0.017), (0.043, 0.017), (0.044, 0.014)]
+    for name, x, k in (("index", 0.031, 1.0), ("middle", 0.0105, 1.1), ("ring", -0.0105, 1.02), ("pinky", -0.031, 0.8)):
+        p = V((x * side, 0.085, -0.008))
+        pts = [p.copy()]
+        for seg in (0.042 * k, 0.027 * k, 0.023 * k):
+            p = p + V((0, seg, 0))
+            pts.append(p.copy())
+        chains[name] = pts
+        r = 0.0095 * (0.9 if name == "pinky" else 1.0)
+        radii[name] = [(r, r), (r * 0.95, r * 0.9), (r * 0.88, r * 0.82), (r * 0.8, r * 0.72)]
+    tp = [V((0.03 * side, 0.015, -0.014))]
+    for d, seg in ((V((0.75 * side, 0.65, 0.0)), 0.04), (V((0.4 * side, 0.92, 0.0)), 0.032), (V((0.15 * side, 1.0, 0.0)), 0.026)):
+        tp.append(tp[-1] + d.normalized() * seg)
+    chains["thumb"] = tp
+    radii["thumb"] = [(0.016, 0.013), (0.0125, 0.011), (0.011, 0.0105), (0.0095, 0.009)]
+    return chains, radii
+
+
+class Wrap:
+    """Maps flat-hand local coordinates onto the rock sphere (exponential map around a contact point)."""
+
+    def __init__(self, contact_dir, finger_dir, side):
+        self.o = V(contact_dir).normalized()                   # outward normal at the contact point
+        f = V(finger_dir)
+        self.f = (f - self.o * f.dot(self.o)).normalized()     # tangent: finger direction
+        self.x = self.o.cross(self.f).normalized() * side      # tangent: thumb side (right-hand rule)
+        self.wrist_dir = (-self.f * 0.8 + self.o * 0.6).normalized()
+        self.R = ROCK_R + GAP
+
+    def __call__(self, p):
+        p = V(p)
+        y = max(p.y, 0.0)
+        theta = V((p.x, y)).length / self.R
+        if theta < 1e-6:
+            d = self.o
+        else:
+            t = (self.x * p.x + self.f * y) / (theta * self.R)
+            d = self.o * math.cos(theta) + t * math.sin(theta)
+        world = ROCK_C + d * (self.R - p.z)
+        if p.y < 0:
+            world += self.wrist_dir * (-p.y)
+        return world
+
+
+def build_hand(side, wrap):
+    chains, radii = hand_chains(side)
+    parts = []
+    for name, pts in chains.items():
+        nodes = [(p, r) for p, r in zip(pts, radii[name])]
+        me = tz.skin_mesh(f"hand{side}_{name}", nodes, [(i, i + 1) for i in range(len(pts) - 1)], root=0, subsurf=2)
+        bm = tz.bm_from_mesh(me)
+        col = tz.color_layer(bm)
+        for v in bm.verts:
+            c = SKIN
+            if name == "arm" and v.co.y < -0.1:
+                c = SLEEVE
+            elif name == "palm" and v.co.z > -0.012:
+                c = SKIN_PALM
+            elif name not in ("arm", "palm") and (v.co - pts[-1]).length < 0.011:
+                c = tz.rgb("#d49a7e")
+            v[col] = c
+            v.co = wrap(v.co)
+        parts.append(tz.mesh_object(f"part{side}_{name}", bm, [tz.material("ViewSkin", "#ffffff", 0.6)],
+                                    smooth=True, sharp_angle=None))
+    obj = tz.join_objects(parts, "ViewHand" + ("R" if side > 0 else "L"))
+    bones = []
+    tag = ".R" if side > 0 else ".L"
+    bones.append((f"arm{tag}", wrap(chains["arm"][0]), wrap(chains["arm"][2]), "root"))
+    bones.append((f"hand{tag}", wrap(chains["palm"][0]), wrap(chains["palm"][2]), f"arm{tag}"))
+    for name in ("thumb", "index", "middle", "ring", "pinky"):
+        pts = chains[name]
+        for j in range(3):
+            bones.append((f"{name}{j + 1}{tag}", wrap(pts[j]), wrap(pts[j + 1]), f"hand{tag}" if j == 0 else f"{name}{j}{tag}"))
+    return obj, bones
+
+
+# right hand grips the lower-right-front of the rock, left hand the lower-left-front; fingers curl up the front face
+wrap_r = Wrap(V((0.6, -0.3, -0.75)), V((0.0, -1.0, 0.8)), +1)
+wrap_l = Wrap(V((-0.6, -0.3, -0.75)), V((0.0, -1.0, 0.8)), -1)
+hand_r, bones_r = build_hand(+1, wrap_r)
+hand_l, bones_l = build_hand(-1, wrap_l)
+hands = tz.join_objects([hand_r, hand_l], "ViewHands")
 
 # ----------------------------------------------------------------------------- armature
-BONES = [("arm", chains["arm"][0], chains["arm"][-1], None), ("hand", chains["palm"][0], chains["palm"][-1], "arm")]
-for name in ("thumb", "index", "middle", "ring", "pinky"):
-    pts = chains[name]
-    for j in range(3):
-        BONES.append((f"{name}{j + 1}", pts[j], pts[j + 1], "hand" if j == 0 else f"{name}{j}"))
+BONES = [("root", ROCK_C, ROCK_C + V((0, 0, 0.1)), None)] + bones_r + bones_l
 arm_data = bpy.data.armatures.new("ViewRig")
 rig = bpy.data.objects.new("ViewRig", arm_data)
 scene.collection.objects.link(rig)
@@ -105,7 +129,7 @@ bpy.context.view_layer.objects.active = rig
 bpy.ops.object.mode_set(mode="EDIT")
 for name, h, t, parent in BONES:
     eb = arm_data.edit_bones.new(name)
-    eb.head, eb.tail = cam(h), cam(t)
+    eb.head, eb.tail = V(h), V(t)
     if parent:
         eb.parent = arm_data.edit_bones[parent]
 bpy.ops.object.mode_set(mode="OBJECT")
@@ -117,30 +141,29 @@ def seg_dist(p, a, b):
     return (a + ab * t - p).length
 
 
-segs = [(n, cam(h), cam(t)) for n, h, t, _ in BONES]
-groups = {n: hand.vertex_groups.new(name=n) for n, _, _, _ in BONES}
-for v in hand.data.vertices:
-    ds = sorted((seg_dist(v.co, a, b), n) for n, a, b in segs)[:2]
+segs = [(n, V(h), V(t)) for n, h, t, _ in BONES if n != "root"]
+groups = {n: hands.vertex_groups.new(name=n) for n, _, _, _ in BONES}
+for v in hands.data.vertices:
+    side_tag = ".R" if v.co.x > 0 else ".L"
+    ds = sorted((seg_dist(v.co, a, b), n) for n, a, b in segs if n.endswith(side_tag))[:2]
     w = [(n, 1.0 / max(d, 1e-4) ** 6) for d, n in ds]
     tot = sum(x for _, x in w)
     for n, x in w:
         groups[n].add([v.index], x / tot, "REPLACE")
-hand.parent = rig
-hand.modifiers.new("Armature", "ARMATURE").object = rig
+hands.parent = rig
+hands.modifiers.new("Armature", "ARMATURE").object = rig
 
-# rock from the AI model, parented to the hand bone
 bpy.ops.import_scene.gltf(filepath=os.path.join(tz.MODELS_DIR, "game", "rock_ai.glb"))
 rock = next(o for o in bpy.context.selected_objects if o.type == "MESH")
 rock.name = "ViewRock"
-dims = max(rock.dimensions)
-rock.scale = rock.scale * (ROCK_D / dims)
-rock.location = cam(ROCK_C)
-rock.rotation_euler = (0.4, 0.2, 1.1)
+rock.scale = rock.scale * (ROCK_R * 2.05 / max(rock.dimensions))
+rock.location = ROCK_C
+rock.rotation_euler = (0.5, 0.3, 1.2)
 bpy.context.view_layer.update()
 mw = rock.matrix_world.copy()
 rock.parent = rig
 rock.parent_type = "BONE"
-rock.parent_bone = "hand"
+rock.parent_bone = "root"
 bpy.context.view_layer.update()
 rock.matrix_world = mw
 
@@ -149,23 +172,15 @@ rig.animation_data_create()
 X3, Y3, Z3 = V((1, 0, 0)), V((0, 1, 0)), V((0, 0, 1))
 
 
-def qworld(bone, axis, deg):
-    m = arm_data.bones[bone].matrix_local.to_3x3()
-    return Quaternion((m.inverted() @ axis).normalized(), math.radians(deg))
-
-
-def lworld(bone, vec):
-    return arm_data.bones[bone].matrix_local.to_3x3().inverted() @ V(vec)
-
-
 def key(frame, bone, rot=(), loc=None):
     pb = rig.pose.bones[bone]
+    m = arm_data.bones[bone].matrix_local.to_3x3().inverted()
     q = Quaternion()
     for axis, deg in rot:
-        q = qworld(bone, axis, deg) @ q
+        q = Quaternion((m @ axis).normalized(), math.radians(deg)) @ q
     pb.rotation_quaternion = q
+    pb.location = m @ V(loc) if loc is not None else V()
     pb.keyframe_insert("rotation_quaternion", frame=frame, group=bone)
-    pb.location = lworld(bone, loc) if loc is not None else V()
     pb.keyframe_insert("location", frame=frame, group=bone)
 
 
@@ -179,24 +194,20 @@ def new_action(name):
 
 
 actions = []
-# Idle: 2 s breathing bob, fingers re-grip slightly
-actions.append(new_action("Idle"))
+actions.append(new_action("Idle"))  # 2 s breathing: rock and hands bob and roll slightly
 for f in range(0, 61, 5):
     a = 2 * math.pi * f / 60
-    key(f, "arm", [(X3, 1.2 * math.sin(a)), (Y3, 0.8 * math.sin(a + 1.0))], (0.0, 0.0, 0.004 * math.sin(a)))
-    for name in ("index", "middle", "ring", "pinky"):
-        key(f, f"{name}1", [(fx, 2.5 * math.sin(a + 0.5))])
-# Draw: rises from below the screen
-actions.append(new_action("Draw"))
-for f, rx, loc in ((0, -35, (0.04, -0.06, -0.24)), (6, -12, (0.01, -0.02, -0.07)), (11, 2, (0, 0, 0.006)), (15, 0, (0, 0, 0))):
-    key(f, "arm", [(X3, rx)], loc)
-# Swing: wind up over the right shoulder, smash forward-down-left, recover (hit at frame 9)
-actions.append(new_action("Swing"))
-SWING = ((0, 0, 0, 0, (0, 0, 0)), (5, 38, -14, -10, (0.05, -0.05, 0.07)), (9, -40, 12, 8, (-0.03, 0.12, -0.03)),
-         (11, -44, 14, 9, (-0.035, 0.13, -0.045)), (16, -20, 6, 4, (-0.01, 0.06, -0.02)), (22, 0, 0, 0, (0, 0, 0)))
-for f, rx, rz, ry, loc in SWING:
-    key(f, "arm", [(X3, rx), (Z3, rz), (Y3, ry)], loc)
-    key(f, "hand", [(fx, rx * 0.25)])
+    key(f, "root", [(X3, 1.0 * math.sin(a)), (Y3, 0.8 * math.sin(a + 1.0))], (0.0, 0.0, 0.004 * math.sin(a)))
+    for tag in (".R", ".L"):
+        for name in ("index", "middle", "ring", "pinky"):
+            key(f, f"{name}1{tag}", [(X3, 1.5 * math.sin(a + 0.5))])
+actions.append(new_action("Draw"))  # rises from below the screen
+for f, rx, loc in ((0, -30, (0.0, -0.08, -0.3)), (6, -10, (0.0, -0.03, -0.09)), (11, 2, (0, 0, 0.006)), (15, 0, (0, 0, 0))):
+    key(f, "root", [(X3, rx)], loc)
+actions.append(new_action("Swing"))  # both arms lift the rock up, smash forward-down, recover; contact frame 9
+for f, rx, rz, loc in ((0, 0, 0, (0, 0, 0)), (5, 32, -6, (0.02, -0.07, 0.09)), (9, -34, 5, (-0.01, 0.13, -0.05)),
+                       (11, -38, 6, (-0.015, 0.14, -0.065)), (16, -16, 2, (0, 0.06, -0.03)), (22, 0, 0, (0, 0, 0))):
+    key(f, "root", [(X3, rx), (Z3, rz)], loc)
 for act in actions:
     track = rig.animation_data.nla_tracks.new()
     track.name = act.name
@@ -204,11 +215,11 @@ for act in actions:
     act.use_fake_user = True
 rig.animation_data.action = None
 
-tz.export_glb(os.path.join(tz.MODELS_DIR, "game", "viewmodel_rock.glb"), [rig, hand, rock], animations=True,
+tz.export_glb(os.path.join(tz.MODELS_DIR, "game", "viewmodel_rock.glb"), [rig, hands, rock], animations=True,
               export_animation_mode="NLA_TRACKS")
-print(f"VIEWMODEL verts={len(hand.data.vertices)} bones={len(BONES)} actions={[a.name for a in actions]}")
+print(f"VIEWMODEL verts={len(hands.data.vertices)} bones={len(BONES)} actions={[a.name for a in actions]}")
 
-# preview from the game camera (80 deg vertical FOV)
+# ----------------------------------------------------------------------------- preview (game camera, 80 deg vertical FOV)
 c = bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam"))
 c.data.sensor_fit = "VERTICAL"
 c.data.angle_y = math.radians(80)
@@ -216,13 +227,14 @@ c.data.clip_start = 0.01
 c.rotation_euler = (math.radians(90), 0, 0)
 scene.collection.objects.link(c)
 scene.camera = c
-for o in (hand,):
+for o in (hands, rock):
     for m in o.data.materials:
         nt = m.node_tree
         b = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled")
-        vc = nt.nodes.new("ShaderNodeVertexColor")
-        vc.layer_name = "Col"
-        nt.links.new(vc.outputs["Color"], b.inputs["Base Color"])
+        if not b.inputs["Base Color"].is_linked:
+            vc = nt.nodes.new("ShaderNodeVertexColor")
+            vc.layer_name = "Col"
+            nt.links.new(vc.outputs["Color"], b.inputs["Base Color"])
 tz.setup_cycles(scene, samples=8, res=(960, 540))
 tz.world_color(scene, (0.55, 0.62, 0.72, 1), 1.0)
 sun = bpy.data.objects.new("s", bpy.data.lights.new("s", "SUN"))
@@ -233,13 +245,17 @@ rig.animation_data.action = actions[0]
 scene.frame_set(0)
 scene.render.filepath = "/tmp/verify/viewmodel.png"
 bpy.ops.render.render(write_still=True)
-
 if os.environ.get("VM_DEBUG"):
-    rock.hide_render = True
-    c.data.angle_y = math.radians(30)
-    for i, d in enumerate((V((0, -1, 0.4)), V((1, 0, 0.3)), V((0, 0, 1)), V((-1, 0.2, 0.2)))):
-        tgt = cam(ROCK_C)
-        c.location = tgt + d.normalized() * 0.7
-        tz.look_at(c, tgt)
+    rig.animation_data.action = actions[2]
+    for f in (5, 9, 16):
+        scene.frame_set(f)
+        scene.render.filepath = f"/tmp/verify/vm_swing{f}.png"
+        bpy.ops.render.render(write_still=True)
+    rig.animation_data.action = actions[0]
+    scene.frame_set(0)
+    c.data.angle_y = math.radians(35)
+    for i, d in enumerate((V((0.3, -1, 0.2)), V((1, -0.3, -0.6)), V((0, -0.5, -1)))):
+        c.location = ROCK_C + d.normalized() * 0.8
+        tz.look_at(c, ROCK_C)
         scene.render.filepath = f"/tmp/verify/vmdbg{i}.png"
         bpy.ops.render.render(write_still=True)
