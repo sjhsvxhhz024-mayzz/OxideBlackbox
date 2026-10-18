@@ -17,3 +17,6 @@ __pycache__/
 /override.cfg
 /debug_*.tscn
 /debug_*.gd
+
+# AI pipeline intermediates (regenerate with tools/ai_pipeline/*.py)
+/tools/ai_pipeline/work/*.npy

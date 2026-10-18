@@ -141,7 +141,7 @@ def look_at(obj, target):
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def export_glb(path, objects, animations=False):
+def export_glb(path, objects, animations=False, **extra):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
         o.select_set(True)
@@ -161,6 +161,7 @@ def export_glb(path, objects, animations=False):
         export_cameras=False,
         export_lights=False,
         export_extras=True,
+        **extra,
     )
 
 
