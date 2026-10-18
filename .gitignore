@@ -14,3 +14,4 @@
 # Workspace service files
 /.hoplite/
 __pycache__/
+/override.cfg
