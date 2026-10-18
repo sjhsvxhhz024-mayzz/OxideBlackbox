@@ -15,3 +15,5 @@
 /.hoplite/
 __pycache__/
 /override.cfg
+/debug_*.tscn
+/debug_*.gd

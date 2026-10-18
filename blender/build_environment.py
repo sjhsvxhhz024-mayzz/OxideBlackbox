@@ -167,7 +167,7 @@ def coast_y(x):
     return lerp(natural, 1000.0, port_mask(x))
 
 
-FACTORY_RECT = (-440.0, 140.0, 330.0, 940.0)
+FACTORY_RECT = (-380.0, 210.0, 330.0, 940.0)
 
 
 def factory_mask(x, y):
@@ -184,7 +184,7 @@ def far_z(x, y):
     z += (2.5 + 7.0 * wr) * fbm(x * 0.008, y * 0.008, 4, 7.0) * smoothstep(25.0, 80.0, d)
     sea = smoothstep(coast_y(x) - 25.0, coast_y(x) + 60.0, y) * (1.0 - 0.9 * wr)
     z = lerp(z, -92.0, sea)
-    z += 96.0 * math.exp(-(((x - 160.0) / 150.0) ** 2 + ((y - 1150.0) / 165.0) ** 2))
+    z += 84.0 * math.exp(-(((x - 170.0) / 260.0) ** 2 + ((y - 1170.0) / 210.0) ** 2))
     mtn = smoothstep(260.0, 1150.0, x) * smoothstep(1250.0, 2300.0, y)
     ridge = 1.0 - abs(fbm(x * 0.0016, y * 0.0016, 4, 11.0))
     z += mtn * (190.0 + 110.0 * fbm(x * 0.0011, y * 0.0011, 5, 3.0) + 70.0 * ridge)
@@ -300,19 +300,19 @@ def make_rock(name, seed, size, coll, loc, rot_z=0.0, moss=0.6):
 
 
 ROCKS = [  # name, seed, size, (x, y), sink, rot
-    ("RockBig", 1.3, (2.7, 1.9, 1.45), (4.7, 9.6), 0.35, 0.4),
-    ("RockRight2", 2.1, (1.1, 0.9, 0.55), (3.3, 7.0), 0.15, 1.2),
+    ("RockBig", 1.3, (1.9, 1.4, 0.95), (5.6, 11.2), 0.35, 0.4),
+    ("RockRight2", 2.1, (0.8, 0.65, 0.35), (3.4, 7.4), 0.15, 1.2),
     ("RockFeetA", 3.7, (0.45, 0.35, 0.16), (0.55, 4.45), 0.05, 0.3),
     ("RockFeetB", 4.2, (0.35, 0.3, 0.12), (1.75, 3.75), 0.04, 2.0),
-    ("RockFrontL", 5.5, (0.95, 0.7, 0.42), (-0.62, 3.9), 0.12, 0.9),
-    ("RockFrontL2", 6.1, (0.55, 0.45, 0.24), (-0.2, 3.1), 0.08, 2.4),
-    ("RockFrontC", 7.4, (0.6, 0.45, 0.2), (0.6, 3.3), 0.08, 1.7),
-    ("RockFrontR", 8.8, (0.7, 0.5, 0.3), (2.45, 4.6), 0.1, 0.2),
-    ("RockMidL", 9.3, (1.3, 1.0, 0.6), (-1.6, 6.6), 0.2, 0.8),
-    ("RockMidC", 10.2, (0.8, 0.6, 0.35), (0.4, 6.9), 0.15, 2.9),
-    ("RockRight3", 11.6, (1.6, 1.2, 0.9), (6.9, 12.5), 0.3, 1.9),
-    ("RockRight4", 12.4, (0.9, 0.7, 0.5), (5.6, 7.4), 0.15, 0.5),
-    ("RockEdgeL", 13.1, (1.5, 1.1, 0.7), (-2.9, 7.6), 0.25, 2.2),
+    ("RockFrontL", 5.5, (0.6, 0.45, 0.2), (-0.62, 3.9), 0.1, 0.9),
+    ("RockFrontL2", 6.1, (0.38, 0.3, 0.13), (-0.25, 3.0), 0.07, 2.4),
+    ("RockFrontC", 7.4, (0.42, 0.32, 0.12), (0.62, 3.25), 0.07, 1.7),
+    ("RockFrontR", 8.8, (0.5, 0.36, 0.2), (2.45, 4.6), 0.08, 0.2),
+    ("RockMidL", 9.3, (0.8, 0.6, 0.32), (-1.6, 6.6), 0.15, 0.8),
+    ("RockMidC", 10.2, (0.55, 0.42, 0.22), (0.4, 6.9), 0.12, 2.9),
+    ("RockRight3", 11.6, (1.2, 0.9, 0.6), (7.6, 13.8), 0.3, 1.9),
+    ("RockRight4", 12.4, (0.6, 0.5, 0.32), (5.4, 7.6), 0.15, 0.5),
+    ("RockEdgeL", 13.1, (0.9, 0.7, 0.4), (-2.9, 7.6), 0.2, 2.2),
 ]
 rock_spots = []
 for name, seed, size, (x, y), sink, rot in ROCKS:
@@ -468,7 +468,7 @@ def forest_density(x, y):
 
 scatter(200, (-0.8, -0.22), (45.0, 430.0), (0.75, 1.3), forest_density, 5.0)       # mid-ground left (behind the panel)
 scatter(70, (-0.22, 0.14), (250.0, 420.0), (0.7, 1.15), forest_density, 7.0)       # pines below the factory view
-scatter(150, (0.2, 0.62), (19.0, 260.0), (0.7, 1.25), forest_density, 4.5)          # right slope
+scatter(130, (0.2, 0.62), (38.0, 260.0), (0.7, 1.2), forest_density, 5.0)           # right slope
 scatter(170, (-0.2, 0.62), (430.0, 1500.0), (0.9, 1.3), forest_density, 12.0)      # far hills
 scatter(40, (-0.75, -0.25), (380.0, 520.0), (0.8, 1.2), None, 9.0)                   # valley edge
 print(f"TREES {tree_count}")
@@ -533,18 +533,18 @@ def hall(cx, cy, w, d, h, roof="flat", brick=True, lit=0.07):
 
 
 HALLS = [
-    (-175, 490, 110, 42, 18, "saw", True), (-62, 505, 70, 36, 14, "gable", True),
-    (-262, 590, 92, 46, 22, "flat", True), (-125, 425, 52, 18, 21, "flat", True),
-    (-345, 485, 60, 40, 12, "gable", True), (-30, 650, 54, 34, 16, "saw", True),
-    (-190, 710, 120, 32, 11, "gable", False), (-370, 800, 110, 30, 10, "flat", False),
-    (-150, 840, 90, 28, 9, "gable", False), (60, 490, 44, 30, 12, "flat", True),
-    (-98, 580, 34, 34, 26, "flat", True), (40, 760, 60, 26, 10, "gable", False),
-    (-420, 650, 50, 40, 15, "saw", True), (85, 590, 30, 46, 13, "flat", True),
+    (-105, 490, 110, 42, 18, "saw", True), (8, 505, 70, 36, 14, "gable", True),
+    (-192, 590, 92, 46, 22, "flat", True), (-55, 425, 52, 18, 21, "flat", True),
+    (-275, 485, 60, 40, 12, "gable", True), (40, 650, 54, 34, 16, "saw", True),
+    (-120, 710, 120, 32, 11, "gable", False), (-300, 800, 110, 30, 10, "flat", False),
+    (-80, 840, 90, 28, 9, "gable", False), (130, 490, 44, 30, 12, "flat", True),
+    (-28, 580, 34, 34, 26, "flat", True), (110, 760, 60, 26, 10, "gable", False),
+    (-350, 650, 50, 40, 15, "saw", True), (155, 590, 30, 46, 13, "flat", True),
 ]
 for cx, cy, w, d, h, roof, brick in HALLS:
     hall(cx, cy, w, d, h, roof, brick)
 
-CHIMNEYS = [(-108.0, 594.0, 92.0, 4.6), (-79.0, 578.0, 80.0, 4.0), (118.0, 650.0, 44.0, 2.3)]
+CHIMNEYS = [(-88.0, 594.0, 92.0, 4.6), (-59.0, 578.0, 80.0, 4.0), (168.0, 650.0, 44.0, 2.3)]
 for i, (x, y, h, r) in enumerate(CHIMNEYS):
     ind.cyl((x, y, G), r, r * 0.62, h, "Brick", scale_col(BRICK, 0.95), segs=20)
     ind.cyl((x, y, G + h - 3.0), r * 0.68, r * 0.68, 3.0, "Concrete", scale_col(CONCRETE, 0.45), segs=20)
@@ -553,7 +553,7 @@ for i, (x, y, h, r) in enumerate(CHIMNEYS):
         rr = lerp(r, r * 0.62, (z - G) / h) + 0.25
         ind.cyl((x, y, z), rr, rr, 1.2, "Concrete", scale_col(CONCRETE, 0.6), segs=20, caps=False)
 
-for x, y, r, h in ((-14, 590, 6.5, 22), (2, 597, 6.5, 22), (16, 583, 5.0, 17), (-28, 545, 4.0, 14)):
+for x, y, r, h in ((26, 590, 6.5, 22), (42, 597, 6.5, 22), (56, 583, 5.0, 17), (12, 545, 4.0, 14)):
     ind.cyl((x, y, G), r, r, h, "SteelPaint", scale_col(rgb("#a6a59d"), rng.uniform(0.85, 1.0)), segs=24)
     ind.dome((x, y, G + h), r, r * 0.35, "SteelPaint", rgb("#9a9991"), segs=24)
     for k in range(3):
@@ -561,11 +561,11 @@ for x, y, r, h in ((-14, 590, 6.5, 22), (2, 597, 6.5, 22), (16, 583, 5.0, 17), (
 
 pipe_y = (450, 540, 625)
 for py in pipe_y:
-    ind.beam((-300, py, G + 12), (70, py, G + 12), 1.2, "SteelPaint", scale_col(STEEL, 0.9))
-    for x in range(-290, 70, 30):
+    ind.beam((-230, py, G + 12), (140, py, G + 12), 1.2, "SteelPaint", scale_col(STEEL, 0.9))
+    for x in range(-220, 140, 30):
         ind.beam((x, py, G), (x, py, G + 12), 0.8, "SteelPaint", scale_col(STEEL, 0.7))
-ind.beam((-60, 580, G + 20), (-14, 590, G + 22), 2.5, "SteelPaint", scale_col(STEEL, 0.9))
-ind.beam((-230, 540, G + 16), (-108, 590, G + 24), 3.0, "Concrete", scale_col(CONCRETE, 0.8))
+ind.beam((-40, 580, G + 20), (26, 590, G + 22), 2.5, "SteelPaint", scale_col(STEEL, 0.9))
+ind.beam((-160, 540, G + 16), (-88, 590, G + 24), 3.0, "Concrete", scale_col(CONCRETE, 0.8))
 
 # port: quay, piers, cranes, ships
 QY = 1000.0

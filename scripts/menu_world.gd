@@ -82,14 +82,16 @@ func _setup_smoke() -> void:
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	# Godot 4.7 drops the per-particle scale on billboards unless this is set.
+	material.billboard_keep_scale = true
 	material.vertex_color_use_as_albedo = true
 	material.albedo_texture = SMOKE_TEXTURE
 	var quad := QuadMesh.new()
 	quad.material = material
 	var ramp := Gradient.new()
-	ramp.offsets = PackedFloat32Array([0.0, 0.08, 0.55, 1.0])
-	ramp.colors = PackedColorArray([Color(0.2, 0.19, 0.18, 0.0), Color(0.19, 0.18, 0.18, 0.9),
-			Color(0.27, 0.27, 0.28, 0.45), Color(0.33, 0.33, 0.35, 0.0)])
+	ramp.offsets = PackedFloat32Array([0.0, 0.06, 0.5, 1.0])
+	ramp.colors = PackedColorArray([Color(0.1, 0.095, 0.09, 0.0), Color(0.085, 0.08, 0.08, 1.0),
+			Color(0.14, 0.14, 0.15, 0.65), Color(0.2, 0.2, 0.22, 0.0)])
 	var ramp_texture := GradientTexture1D.new()
 	ramp_texture.gradient = ramp
 	var growth := Curve.new()
@@ -111,8 +113,8 @@ func _setup_smoke() -> void:
 		process.gravity = Vector3(0.28, 0.0, -0.05)
 		process.damping_min = 0.08
 		process.damping_max = 0.12
-		process.scale_min = 6.0 if big else 3.0
-		process.scale_max = 9.0 if big else 4.5
+		process.scale_min = 8.0 if big else 4.0
+		process.scale_max = 12.0 if big else 6.0
 		process.scale_curve = growth_texture
 		process.angle_min = -180.0
 		process.angle_max = 180.0
@@ -189,7 +191,7 @@ func _setup_dust() -> void:
 	material.vertex_color_use_as_albedo = true
 	material.albedo_texture = SMOKE_TEXTURE
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.035, 0.035)
+	quad.size = Vector2(0.025, 0.025)
 	quad.material = material
 	var fade := Gradient.new()
 	fade.offsets = PackedFloat32Array([0.0, 0.3, 0.7, 1.0])
