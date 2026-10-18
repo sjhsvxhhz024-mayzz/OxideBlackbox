@@ -20,3 +20,4 @@ __pycache__/
 
 # AI pipeline intermediates (regenerate with tools/ai_pipeline/*.py)
 /tools/ai_pipeline/work/*.npy
+/debug_*

@@ -146,7 +146,7 @@ def export_glb(path, objects, animations=False, **extra):
     for o in objects:
         o.select_set(True)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    bpy.ops.export_scene.gltf(
+    opts = dict(
         filepath=path,
         export_format="GLB",
         use_selection=True,
@@ -161,8 +161,9 @@ def export_glb(path, objects, animations=False, **extra):
         export_cameras=False,
         export_lights=False,
         export_extras=True,
-        **extra,
     )
+    opts.update(extra)
+    bpy.ops.export_scene.gltf(**opts)
 
 
 def setup_cycles(scene, samples=32, res=(800, 800)):
